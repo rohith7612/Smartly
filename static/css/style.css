@@ -317,3 +317,52 @@ a, .btn, .card, .nav-link, .form-control, .dropdown-menu { transition: all 180ms
 .outline-dark {
   border: 1px solid rgba(15, 23, 42, 0.28) !important;
 }
+
+/* Form controls: darker accents for better contrast on white */
+.form-check-input[type="radio"],
+input[type="radio"] {
+  accent-color: var(--accent-primary-600);
+}
+
+/* Stronger, darker radio circle */
+.form-check-input {
+  border: 2px solid #1f2937; /* slate-800 for clear contrast */
+  box-shadow: none;
+}
+.form-check-input:focus {
+  border-color: var(--accent-primary-600);
+  box-shadow: 0 0 0 0.18rem rgba(37, 99, 235, 0.35);
+}
+.form-check-input:checked {
+  background-color: var(--accent-primary-600);
+  border-color: var(--accent-primary-600);
+}
+.form-check-input[type="radio"] { border-radius: 9999px; }
+
+.form-range,
+input[type="range"] {
+  accent-color: var(--accent-primary-600);
+}
+/* Slider track and thumb for stronger visibility */
+.form-range::-webkit-slider-runnable-track,
+input[type="range"]::-webkit-slider-runnable-track {
+  background: #cbd5e1; /* slate-300 */
+  height: 6px;
+  border-radius: 6px;
+}
+.form-range::-webkit-slider-thumb,
+input[type="range"]::-webkit-slider-thumb {
+  background: var(--accent-primary-600);
+  border: 2px solid #1e3a8a; /* darker edge */
+}
+.form-range::-moz-range-track,
+input[type="range"]::-moz-range-track {
+  background: #cbd5e1;
+  height: 6px;
+  border-radius: 6px;
+}
+.form-range::-moz-range-thumb,
+input[type="range"]::-moz-range-thumb {
+  background: var(--accent-primary-600);
+  border: 2px solid #1e3a8a;
+}
