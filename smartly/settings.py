@@ -25,7 +25,8 @@ SECRET_KEY = 'django-insecure-9mb^wy$r4zyiqe$9@+#3ec7tn^+7t*68_f$1$!lk#pk5)mug)j
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['smartly-nlq7.onrender.com', 'localhost', '127.0.0.1', 'smartly.ai']
+
 
 
 # Application definition
