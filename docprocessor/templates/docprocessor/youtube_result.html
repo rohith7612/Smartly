@@ -1,0 +1,77 @@
+{% extends 'docprocessor/base.html' %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="row">
+        <div class="col-md-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item active">YouTube Result</li>
+                </ol>
+            </nav>
+
+            <div class="card glass mb-4">
+                <div class="card-header">
+                    <h3 class="mb-0">{{ youtube_video.title|default:youtube_video.url }}</h3>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <p><strong>Processing Type:</strong> {{ yt_result.get_processing_type_display }}</p>
+                            <p><strong>Video:</strong> <a href="{{ youtube_video.url }}" target="_blank">Open on YouTube</a></p>
+                        </div>
+                        <div class="col-md-6 text-md-end">
+                            <p><strong>Processed:</strong> {{ yt_result.processed_at|date:"F d, Y H:i" }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card glass h-100">
+                        <div class="card-header">
+                            <h5 class="mb-0">Transcript Preview</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="result-container glass">
+                                <div class="text-preview">
+                                    <pre style="white-space: pre-wrap; font-family: inherit;">{{ transcript_preview|slice:":1800" }}</pre>
+                                    <div class="fade-out"></div>
+                                </div>
+                                <p class="text-muted small mt-2 mb-0">Preview of transcript.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-6">
+                    <div class="card glass h-100">
+                        <div class="card-header">
+                            <h5 class="mb-0">Result</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="result-container glass">
+                                <div style="white-space: pre-wrap; font-family: inherit;">{{ yt_result.result_text }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-4 text-center">
+                <a href="{% url 'dashboard' %}" class="btn btn-primary">
+                    <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+                </a>
+                <a href="{% url 'download_youtube_result_pdf' yt_result.id %}" class="btn btn-success">
+                    <i class="fas fa-file-pdf me-2"></i>Download PDF
+                </a>
+                <a href="{% url 'accessibility' %}" class="btn btn-outline-primary">
+                    <i class="fab fa-youtube me-2"></i>Process Another YouTube Video
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,11 @@
+Django==4.2.23
+django-crispy-forms
+crispy-bootstrap5
+reportlab
+openai<1
+python-dotenv
+PyPDF2
+python-docx
+pytesseract
+Pillow
+youtube-transcript-api

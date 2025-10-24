@@ -1,0 +1,795 @@
+{% extends 'docprocessor/base.html' %}
+
+{% block content %}
+<div class="container my-5">
+  <div class="row">
+    <div class="col-md-3">
+      <div class="card glass mb-4">
+        <div class="card-header">
+          <h5 class="mb-0">Sessions</h5>
+        </div>
+        <div class="list-group list-group-flush">
+          <a href="{% url 'chat' %}" class="list-group-item list-group-item-action {% if not active_session %}active{% endif %}">
+            New Chat
+          </a>
+          {% for s in sessions %}
+            <div class="list-group-item d-flex justify-content-between align-items-center {% if active_session and s.id == active_session.id %}active{% endif %}">
+              <a href="{% url 'chat' %}?session_id={{ s.id }}" class="text-decoration-none flex-grow-1 me-2 text-reset">
+                {{ s.title|default:"Chat" }} <small class="text-muted">#{{ s.id }}</small>
+              </a>
+              <button type="button"
+                      class="btn btn-outline-danger btn-sm"
+                      title="Delete"
+                      data-session-id="{{ s.id }}"
+                      data-session-title="{{ s.title|default:'Chat' }}"
+                      data-delete-url="{% url 'delete_chat_session' s.id %}"
+                      onclick="openDeleteModal(this)">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
+          {% empty %}
+            <div class="list-group-item">No sessions yet.</div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="card glass">
+        <div class="card-header">
+          <h5 class="mb-0">Personas</h5>
+        </div>
+        <div class="card-body">
+          <p class="text-muted mb-2">Choose a persona to shape how the AI responds.</p>
+          <div class="mb-3 d-flex flex-wrap gap-2" id="personaButtons">
+            <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="student">Student</button>
+            <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="professor">Professor</button>
+            <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="researcher">Researcher</button>
+            <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="friendly_tutor">Friendly Tutor</button>
+            <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="technical_expert">Technical Expert</button>
+            <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="creative_writer">Creative Writer</button>
+            <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="socratic_guide">Socratic Guide</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-9">
+      <div class="card glass">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">Chat Assistant</h5>
+          <div class="d-flex align-items-center gap-3">
+            <span id="activePersonaLabel" class="badge bg-info d-none"></span>
+            <div class="form-check form-switch m-0" title="When enabled, answers use ONLY selected document context.">
+              <input class="form-check-input" type="checkbox" id="focusModeToggle">
+              <label class="form-check-label" for="focusModeToggle">Focus Mode</label>
+            </div>
+            {% if active_session %}
+              <span class="badge bg-secondary">Session #{{ active_session.id }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="card-body chat-body">
+          <div class="chat-messages mb-3" id="chatMessages">
+            {% for m in chat_messages %}
+              <div class="d-flex mb-3">
+                {% if m.role == 'user' %}
+                  <div class="message-bubble ms-auto p-3 rounded bubble-user">{{ m.content }}</div>
+                {% else %}
+                  <div class="message-bubble me-auto p-3 rounded bubble-assistant">{{ m.content }}</div>
+                {% endif %}
+              </div>
+            {% empty %}
+              <p class="text-muted">Start the conversation by sending a message below.</p>
+            {% endfor %}
+          </div>
+
+          <form id="messageForm" method="post" action="{% url 'chat' %}">
+            {% csrf_token %}
+            <input type="hidden" name="session_id" id="sessionIdMsg" value="{{ active_session.id|default:'' }}" />
+            <div class="input-group align-items-stretch chat-input-group">
+              <!-- Context dropdown toggle as a plus icon on the left -->
+              <div class="dropdown me-2">
+                <button class="btn btn-primary btn-square dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Context">
+                  <i class="fas fa-plus"></i>
+                </button>
+                <div class="dropdown-menu dropdown-menu-start p-3 context-dropdown" style="width: 340px; max-height: 300px; overflow-y: auto;">
+                  <form id="contextForm" method="post" action="{% url 'chat' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="session_id" id="sessionIdCtx" value="{{ active_session.id|default:'' }}" />
+                    <div class="mb-2"><strong>Select documents</strong></div>
+                    {% for d in documents %}
+                      <div class="form-check">
+                        <input class="form-check-input context-doc" type="checkbox" id="doc{{ d.id }}" name="documents" value="{{ d.id }}" {% if d.id in selected_doc_ids %}checked{% endif %}>
+                        <label class="form-check-label" for="doc{{ d.id }}">{{ d.title }} ({{ d.get_document_type_display }})</label>
+                      </div>
+                    {% endfor %}
+                  </form>
+                </div>
+              </div>
+              <textarea class="form-control chat-input" name="message" rows="1" placeholder="Type your message..."></textarea>
+              <button class="btn btn-primary btn-send" type="submit"><i class="fas fa-paper-plane me-2"></i>Send</button>
+              <!-- Hidden system prompt to submit with message -->
+              <input type="hidden" name="system_prompt" id="hiddenSystemPrompt">
+              <!-- Hidden focus mode flag -->
+              <input type="hidden" name="focus_mode" id="focusModeInput" value="0">
+              <!-- Hidden quick action flag -->
+              <input type="hidden" name="quick_action" id="quickActionInput" value="">
+            </div>
+          </form>
+        </div>
+        {% block extra_js %}
+        <!-- KaTeX for LaTeX math rendering -->
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
+        <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
+        <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" crossorigin="anonymous" onload="try{renderMathInElement(document.getElementById('chatMessages'),{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false});}catch(e){}"></script>
+        <!-- Mermaid for flowcharts/diagrams -->
+        <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+        <script>
+          (function(){
+            const el = document.getElementById('chatMessages');
+            if (el) { el.scrollTop = el.scrollHeight; }
+
+            // Initialize Mermaid if available
+            if (window.mermaid) {
+              try { window.mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' }); } catch (e) {}
+            }
+
+            // Re-render any preloaded assistant bubbles to support smartly_videos/cards
+            try {
+              document.querySelectorAll('.bubble-assistant').forEach(b => {
+                const raw = b.textContent;
+                renderMessageContent(b, raw);
+              });
+            } catch (e) {}
+            // Helper to render math once KaTeX is loaded
+            function renderMathTarget(target){
+              try {
+                if (window.renderMathInElement) {
+                  window.renderMathInElement(target, {
+                    delimiters: [
+                      {left: '$$', right: '$$', display: true},
+                      {left: '\\[', right: '\\]', display: true},
+                      {left: '$', right: '$', display: false},
+                      {left: '\\(', right: '\\)', display: false}
+                    ],
+                    throwOnError: false
+                  });
+                }
+              } catch (e) {}
+            }
+
+            function renderMermaidTarget(target){
+              try {
+                if (window.mermaid) {
+                  const blocks = target.querySelectorAll('.mermaid');
+                  if (blocks && blocks.length) {
+                    window.mermaid.init(undefined, blocks);
+                  }
+                }
+              } catch (e) {}
+            }
+
+            // Detect and render fenced code blocks (mermaid, latex, etc.)
+            function renderMessageContent(bubble, content){
+              const fenceRe = /```(\w+)?\s*\n([\s\S]*?)```/m;
+              const m = fenceRe.exec(content);
+              if (!m) {
+                bubble.textContent = content;
+                // Attempt to render naked math if no delimiters present
+                tryRenderNakedMath(bubble, content);
+                return;
+              }
+              const lang = (m[1] || '').toLowerCase();
+              const code = m[2] || '';
+              // Clear bubble
+              bubble.innerHTML = '';
+              if (lang === 'mermaid') {
+                const info = document.createElement('div');
+                info.className = 'text-muted small mb-2';
+                info.textContent = 'Mermaid flowchart ready. View it in a larger card.';
+                bubble.appendChild(info);
+
+                const btnView = document.createElement('button');
+                btnView.type = 'button';
+                btnView.className = 'btn btn-outline-primary btn-sm';
+                btnView.innerHTML = '<i class="fas fa-eye me-1"></i> View Flowchart';
+                btnView.addEventListener('click', function(){
+                  openFlowchartCard(code);
+                });
+                bubble.appendChild(btnView);
+              } else if (lang === 'smartly_videos') {
+                // Render structured video cards from JSON payload
+                let items = null;
+                try { items = JSON.parse(code.trim()); } catch (e) { items = null; }
+                if (Array.isArray(items) && items.length) {
+                  const grid = document.createElement('div');
+                  grid.className = 'row g-3';
+                  items.slice(0, 12).forEach(item => {
+                    const col = document.createElement('div');
+                    col.className = 'col-12 col-sm-6 col-lg-4';
+
+                    const card = document.createElement('div');
+                    card.className = 'card glass h-100';
+
+                    if (item.thumb) {
+                      const img = document.createElement('img');
+                      img.className = 'card-img-top';
+                      img.src = item.thumb;
+                      img.alt = item.title || 'Video thumbnail';
+                      card.appendChild(img);
+                    }
+
+                    const body = document.createElement('div');
+                    body.className = 'card-body';
+
+                    const titleEl = document.createElement('h6');
+                    titleEl.className = 'card-title';
+                    titleEl.textContent = item.title || 'YouTube Video';
+
+                    const channelEl = document.createElement('div');
+                    channelEl.className = 'text-muted small mb-2';
+                    channelEl.textContent = item.channel || 'YouTube';
+
+                    const openBtn = document.createElement('a');
+                    openBtn.className = 'btn btn-outline-primary btn-sm';
+                    openBtn.textContent = 'Open';
+                    openBtn.href = item.url || '#';
+                    openBtn.target = '_blank';
+                    openBtn.rel = 'noopener';
+
+                    body.appendChild(titleEl);
+                    body.appendChild(channelEl);
+                    body.appendChild(openBtn);
+
+                    card.appendChild(body);
+                    col.appendChild(card);
+                    grid.appendChild(col);
+                  });
+                  bubble.appendChild(grid);
+                } else {
+                  // Fallback: show as code block if JSON parsing fails
+                  const pre = document.createElement('pre');
+                  pre.style.whiteSpace = 'pre-wrap';
+                  pre.style.wordBreak = 'break-word';
+                  const codeEl = document.createElement('code');
+                  codeEl.textContent = code;
+                  pre.appendChild(codeEl);
+                  bubble.appendChild(pre);
+                }
+              } else if (lang === 'latex' || lang === 'tex' || lang === 'math' || lang === 'katex') {
+                // Render LaTeX code fences using KaTeX directly
+                const container = document.createElement('div');
+                container.className = 'katex-block';
+                bubble.appendChild(container);
+                try {
+                  if (window.katex && typeof window.katex.render === 'function') {
+                    const lines = code.split(/\r?\n/).filter(l => l.trim().length > 0);
+                    if (lines.length <= 1) {
+                      window.katex.render(lines[0] || code, container, { displayMode: true, throwOnError: false });
+                    } else {
+                      lines.forEach(line => {
+                        const lineEl = document.createElement('div');
+                        container.appendChild(lineEl);
+                        window.katex.render(line, lineEl, { displayMode: true, throwOnError: false });
+                      });
+                    }
+                  } else {
+                    // If KaTeX not yet ready, defer via auto-render on container
+                    container.textContent = `$$${code}$$`;
+                    renderMathTarget(container);
+                  }
+                } catch (e) {
+                  // On error, show code for transparency
+                  const pre = document.createElement('pre');
+                  pre.style.whiteSpace = 'pre-wrap'; 
+                  pre.style.wordBreak = 'break-word';
+                  const codeEl = document.createElement('code');
+                  codeEl.textContent = code;
+                  pre.appendChild(codeEl);
+                  bubble.appendChild(pre);
+                }
+              } else { 
+                // Show as a code block for readability
+                const pre = document.createElement('pre');
+                pre.style.whiteSpace = 'pre-wrap';
+                pre.style.wordBreak = 'break-word';
+                const codeEl = document.createElement('code');
+                codeEl.textContent = code;
+                pre.appendChild(codeEl);
+                bubble.appendChild(pre);
+              }
+            }
+
+            // Fallback: attempt to render simple naked math without explicit delimiters
+            function tryRenderNakedMath(bubble, content){
+              try {
+                if (!window.katex || typeof window.katex.render !== 'function') return;
+                if (!content || typeof content !== 'string') return;
+                const hasDelimsGlobal = /\$|\\\(|\\\)|\\\[|\\\]/.test(content);
+                if (hasDelimsGlobal) return; // auto-render will handle
+
+                const lines = content.split(/\r?\n/);
+                const isMathCandidate = (line) => {
+                  const t = (line || '').trim();
+                  if (!t) return false;
+                  // ignore fenced blocks or existing delimiters in-line
+                  if (/\$|\\\(|\\\)|\\\[|\\\]/.test(t)) return false;
+                  const hasEq = /=/.test(t);
+                  const hasLatexCmd = /\\frac|\\sqrt|\\pi|\\sum|\\int|\\alpha|\\beta|\\gamma|\\theta|\\Delta/.test(t);
+                  const hasSymbols = /[\^_]/.test(t) || /[+\-*/]/.test(t);
+                  const hasNums = /\d/.test(t);
+                  const shortEnough = t.length <= 120; // avoid long paragraphs
+                  return shortEnough && (hasLatexCmd || (hasEq && (hasSymbols || hasNums)));
+                };
+
+                // Only proceed if at least one candidate line exists
+                const anyMath = lines.some(isMathCandidate);
+                if (!anyMath) return;
+
+                // Rebuild bubble content conservatively
+                bubble.innerHTML = '';
+                lines.forEach(line => {
+                  const t = (line || '').trim();
+                  if (!t) { bubble.appendChild(document.createElement('br')); return; }
+                  if (isMathCandidate(t)) {
+                    const div = document.createElement('div');
+                    try { window.katex.render(t, div, { displayMode: true, throwOnError: false }); }
+                    catch (e) { div.textContent = t; }
+                    bubble.appendChild(div);
+                  } else {
+                    const p = document.createElement('div');
+                    p.textContent = line; // preserve original spacing within line
+                    bubble.appendChild(p);
+                  }
+                });
+              } catch(e) {}
+            }
+
+            // Ensure messages render on load and when navigating back (bfcache)
+            function rerenderAll(){
+              if (!el) return;
+              try {
+                document.querySelectorAll('.bubble-assistant').forEach(b => {
+                  // Skip if bubble already has rendered content to avoid wiping it
+                  if (b.querySelector('.katex, .katex-block, .mermaid, pre code')) return;
+                  const txt = b.textContent || '';
+                  renderMessageContent(b, txt);
+                });
+              } catch(e) {}
+              renderMathTarget(el);
+              renderMermaidTarget(el);
+            }
+            document.addEventListener('DOMContentLoaded', rerenderAll);
+            window.addEventListener('load', rerenderAll);
+            window.addEventListener('pageshow', rerenderAll);
+
+            // CSRF helper
+            function getCsrfToken(form){
+              const inp = form.querySelector('input[name="csrfmiddlewaretoken"]');
+              return inp ? inp.value : '';
+            }
+
+            // Simple dedupe: if the last bubble for role matches, skip
+            function lastBubbleText(role){
+              const bubbles = el.querySelectorAll('.message-bubble');
+              for (let i = bubbles.length - 1; i >= 0; i--) {
+                const b = bubbles[i];
+                const isUser = b.classList.contains('bubble-user');
+                const isAssistant = b.classList.contains('bubble-assistant');
+                if ((role === 'user' && isUser) || (role === 'assistant' && isAssistant)) {
+                  return b.textContent || '';
+                }
+              }
+              return '';
+            }
+
+            function openFlowchartCard(code){
+              const modalEl = document.getElementById('flowchartModal');
+              const container = document.getElementById('flowchartContainer');
+              if (!modalEl || !container) return;
+              container.innerHTML = '';
+              const mer = document.createElement('div');
+              mer.className = 'mermaid';
+              mer.textContent = code;
+              container.appendChild(mer);
+              if (window.bootstrap && bootstrap.Modal) {
+                const m = new bootstrap.Modal(modalEl);
+                const onShown = function(){
+                  modalEl.removeEventListener('shown.bs.modal', onShown);
+                  renderMermaidInContainer(container, code);
+                };
+                const onHidden = function(){
+                  modalEl.removeEventListener('hidden.bs.modal', onHidden);
+                  container.innerHTML = '';
+                };
+                modalEl.addEventListener('shown.bs.modal', onShown);
+                modalEl.addEventListener('hidden.bs.modal', onHidden);
+                m.show();
+              } else {
+                renderMermaidInContainer(container, code);
+              }
+            }
+
+            function renderMermaidInContainer(container, code){
+              try {
+                if (!window.mermaid) {
+                  showMermaidError('Mermaid library not loaded', code, container);
+                  return;
+                }
+                // Validate syntax first; show helpful fallback if it fails
+                try { window.mermaid.parse(code); } catch (err) {
+                  showMermaidError(err, code, container);
+                  return;
+                }
+                const blocks = container.querySelectorAll('.mermaid');
+                if (typeof window.mermaid.run === 'function') {
+                  window.mermaid.run({ querySelector: '#flowchartContainer .mermaid' }).catch(err => {
+                    showMermaidError(err, code, container);
+                  });
+                } else {
+                  window.mermaid.init(undefined, blocks);
+                }
+              } catch (e) {
+                showMermaidError(e, code, container);
+              }
+            }
+
+            function showMermaidError(err, code, container){
+              try {
+                const alert = document.createElement('div');
+                alert.className = 'alert alert-warning';
+                alert.textContent = 'Could not render diagram: ' + (err && err.message ? err.message : String(err));
+                container.appendChild(alert);
+                const pre = document.createElement('pre');
+                pre.style.whiteSpace = 'pre-wrap';
+                pre.textContent = code;
+                container.appendChild(pre);
+              } catch(e){}
+            }
+
+            // Append a message bubble and, for assistant replies, quick-action prompts
+            function appendMessage(role, content){
+              const wrap = document.createElement('div');
+              wrap.className = 'd-flex mb-2';
+              const bubble = document.createElement('div');
+              bubble.className = 'message-bubble p-3 rounded ' + (role === 'user' ? 'bubble-user ms-auto' : 'bubble-assistant me-auto');
+              renderMessageContent(bubble, content);
+              wrap.appendChild(bubble);
+              el.appendChild(wrap);
+              // Render math in the new bubble
+              renderMathTarget(bubble);
+              // Fallback render for naked math
+              tryRenderNakedMath(bubble, content);
+
+              // After assistant reply, show quick actions
+              if (role === 'assistant') {
+                const actions = document.createElement('div');
+                actions.className = 'd-flex gap-2 mb-3';
+                const label = document.createElement('span');
+                label.className = 'text-muted small me-2';
+                label.textContent = 'Suggested follow-ups:';
+                actions.appendChild(label);
+
+                const btnMermaid = document.createElement('button');
+                btnMermaid.type = 'button';
+                btnMermaid.className = 'btn btn-outline-secondary btn-sm';
+                btnMermaid.innerHTML = '<i class="fas fa-diagram-project me-1"></i> Mermaid Flowchart';
+                btnMermaid.addEventListener('click', function(){
+                  const topic = lastBubbleText('user') || bubble.textContent || 'the topic discussed';
+                  const prompt = 'Create a concise Mermaid flowchart for: ' + topic + '. Return ONLY a fenced ```mermaid code block. Keep it readable and focused.';
+                  sendPrompt(prompt, { silent: true, action: 'mermaid_flowchart' });
+                });
+
+                const btnYT = document.createElement('button');
+                btnYT.type = 'button';
+                btnYT.className = 'btn btn-outline-secondary btn-sm';
+                btnYT.innerHTML = '<i class="fab fa-youtube me-1"></i> Recommend Videos';
+                btnYT.addEventListener('click', function(){
+                  const topic = lastBubbleText('user') || bubble.textContent || 'the topic discussed';
+                  const prompt = 'Recommend 5 high-quality YouTube videos to learn ' + topic + '. For each: title, channel, and a one-line summary. Prefer educational channels. If URLs are uncertain, give clear search queries.';
+                  sendPrompt(prompt, { silent: true, action: 'recommend_videos' });
+                });
+
+                actions.appendChild(btnMermaid);
+                actions.appendChild(btnYT);
+                el.appendChild(actions);
+              }
+
+              el.scrollTop = el.scrollHeight;
+            }
+
+            // Auto-submit context on checkbox change via AJAX
+            const ctxForm = document.getElementById('contextForm');
+            if (ctxForm) {
+              if (!ctxForm.dataset.bound) {
+                ctxForm.dataset.bound = '1';
+              const inputs = ctxForm.querySelectorAll('.context-doc');
+              inputs.forEach((i) => {
+                i.addEventListener('change', function(){
+                  const fd = new FormData(ctxForm);
+                  fetch(ctxForm.action, {
+                    method: 'POST',
+                    headers: {
+                      'X-Requested-With': 'XMLHttpRequest',
+                      'X-CSRFToken': getCsrfToken(ctxForm)
+                    },
+                    body: fd
+                  }).then(r => r.json()).then(data => {
+                    // If a new session was created, update hidden inputs
+                    if (data && data.session_id) {
+                      const msgSid = document.getElementById('sessionIdMsg');
+                      const ctxSid = document.getElementById('sessionIdCtx');
+                      if (msgSid) msgSid.value = data.session_id;
+                      if (ctxSid) ctxSid.value = data.session_id;
+                      const badge = document.querySelector('.card-header .badge');
+                      if (badge) badge.textContent = 'Session #' + data.session_id;
+                    }
+                  }).catch(() => {});
+                });
+              });
+              }
+            }
+            // Copy system prompt into message form before sending
+            const msgForm = document.getElementById('messageForm');
+            const hiddenSys = document.getElementById('hiddenSystemPrompt');
+            let sendBusy = false;
+            const hiddenAction = document.getElementById('quickActionInput');
+
+            function applySystemPrompt(){
+              try {
+                const persona = localStorage.getItem(storageKeyPersona);
+                const storedPrompt = localStorage.getItem(storageKeyPrompt);
+                hiddenSys.value = storedPrompt || (persona ? PERSONA_PROMPTS[persona] : '');
+              } catch (e) {
+                hiddenSys.value = '';
+              }
+            }
+
+            function sendPrompt(text, opts){
+              if (!msgForm || !hiddenSys || sendBusy) return;
+              const t = (text || '').trim();
+              if (!t) return;
+              const silent = !!(opts && opts.silent);
+              const action = (opts && opts.action) ? String(opts.action) : '';
+              sendBusy = true;
+              applySystemPrompt();
+              // Show user message only when not silent
+              if (!silent && lastBubbleText('user') !== t) {
+                appendMessage('user', t);
+              }
+              const sendBtn = msgForm.querySelector('button[type="submit"]');
+              if (sendBtn) sendBtn.disabled = true;
+              const original = msgForm.querySelector('textarea[name="message"]').value;
+              msgForm.querySelector('textarea[name="message"]').value = t;
+              if (hiddenAction) hiddenAction.value = action;
+              const fd = new FormData(msgForm);
+              fetch(msgForm.action, {
+                method: 'POST',
+                headers: {
+                  'X-Requested-With': 'XMLHttpRequest',
+                  'X-CSRFToken': getCsrfToken(msgForm)
+                },
+                body: fd
+              }).then(r => r.json()).then(data => {
+                // Update session id if new
+                if (data && data.session_id) {
+                  const msgSid = document.getElementById('sessionIdMsg');
+                  const ctxSid = document.getElementById('sessionIdCtx');
+                  if (msgSid) msgSid.value = data.session_id;
+                  if (ctxSid) ctxSid.value = data.session_id;
+                  const badge = document.querySelector('.card-header .badge');
+                  if (badge) badge.textContent = 'Session #' + data.session_id;
+                }
+                // Render assistant reply
+                if (data && typeof data.assistant_reply === 'string') {
+                  if (lastBubbleText('assistant') !== data.assistant_reply) {
+                    appendMessage('assistant', data.assistant_reply);
+                  }
+                }
+              }).catch(() => {
+                // On error, do nothing or show a toast (not implemented)
+              }).finally(() => {
+                // Restore message box state
+                msgForm.querySelector('textarea[name="message"]').value = original || '';
+                if (hiddenAction) hiddenAction.value = '';
+                sendBusy = false;
+                if (sendBtn) sendBtn.disabled = false;
+              });
+            }
+
+            if (msgForm && hiddenSys) {
+              if (!msgForm.dataset.bound) {
+                msgForm.dataset.bound = '1';
+                let sending = false;
+                const sendBtn = msgForm.querySelector('button[type="submit"]');
+                msgForm.addEventListener('submit', function(e){
+                e.preventDefault();
+                if (sending) return; // prevent duplicate sends
+                sending = true;
+                let userText = msgForm.querySelector('textarea[name="message"]').value.trim();
+                if (!userText) return;
+                applySystemPrompt();
+                // Show user message immediately
+                if (lastBubbleText('user') !== userText) {
+                  appendMessage('user', userText);
+                }
+                if (sendBtn) sendBtn.disabled = true;
+                const fd = new FormData(msgForm);
+                fetch(msgForm.action, {
+                  method: 'POST',
+                  headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': getCsrfToken(msgForm)
+                  },
+                  body: fd
+                }).then(r => r.json()).then(data => {
+                  // Update session id if new
+                  if (data && data.session_id) {
+                    const msgSid = document.getElementById('sessionIdMsg');
+                    const ctxSid = document.getElementById('sessionIdCtx');
+                    if (msgSid) msgSid.value = data.session_id;
+                    if (ctxSid) ctxSid.value = data.session_id;
+                    const badge = document.querySelector('.card-header .badge');
+                    if (badge) badge.textContent = 'Session #' + data.session_id;
+                  }
+                  // Render assistant reply
+                  if (data && typeof data.assistant_reply === 'string') {
+                    if (lastBubbleText('assistant') !== data.assistant_reply) {
+                      appendMessage('assistant', data.assistant_reply);
+                    }
+                  }
+                  msgForm.querySelector('textarea[name="message"]').value = '';
+                }).catch(() => {
+                  // On error, do nothing or show a toast (not implemented)
+                }).finally(() => {
+                  sending = false;
+                  if (sendBtn) sendBtn.disabled = false;
+                });
+              });
+              }
+            }
+
+            // Personas: map selections to prompts and persist per session
+            const SESSION_ID = "{{ active_session.id|default:'new' }}";
+            const PERSONA_PROMPTS = {
+              student: "You are a patient tutor. Explain concepts step-by-step with simple language and examples. Check understanding and suggest practice.",
+              professor: "You are a rigorous professor. Provide precise, well-structured, academic explanations with key definitions and references when relevant.",
+              researcher: "You are an analytical researcher. Synthesize evidence, compare approaches, note trade-offs and uncertainties, and recommend next steps.",
+              friendly_tutor: "You are a friendly tutor. Give approachable explanations, highlight intuition, and encourage the learner.",
+              technical_expert: "You are a technical expert. Provide detailed, accurate, implementation-oriented guidance with code or math where useful.",
+              creative_writer: "You are a creative writer. Craft engaging, vivid text while staying relevant and clear.",
+              socratic_guide: "You are a Socratic guide. Ask probing questions, lead the user to insight, and avoid giving full solutions outright."
+            };
+            const personaBtns = document.querySelectorAll('.persona-btn');
+            const storageKeyPersona = `chat_persona_${SESSION_ID}`;
+            const storageKeyPrompt = `chat_system_prompt_${SESSION_ID}`;
+            const personaLabelEl = document.getElementById('activePersonaLabel');
+            const focusToggle = document.getElementById('focusModeToggle');
+            const focusHidden = document.getElementById('focusModeInput');
+            const storageKeyFocus = `chat_focus_mode_${SESSION_ID}`;
+            function setActive(btn){
+              personaBtns.forEach(b => b.classList.remove('active'));
+              if (btn) btn.classList.add('active');
+            }
+            function setPersonaLabel(key){
+              if (!personaLabelEl) return;
+              const btn = document.querySelector(`.persona-btn[data-persona="${key}"]`);
+              const name = btn ? (btn.textContent || '').trim() : (key || '');
+              if (name) {
+                personaLabelEl.textContent = `Persona: ${name}`;
+                personaLabelEl.classList.remove('d-none');
+              } else {
+                personaLabelEl.textContent = '';
+                personaLabelEl.classList.add('d-none');
+              }
+            }
+            function applyPersona(key){
+              const prompt = PERSONA_PROMPTS[key] || '';
+              try {
+                localStorage.setItem(storageKeyPersona, key);
+                localStorage.setItem(storageKeyPrompt, prompt);
+                if (hiddenSys) hiddenSys.value = prompt;
+                setPersonaLabel(key);
+              } catch (e) {}
+            }
+            // Focus Mode sync helpers
+            function setFocusMode(val){
+              const on = !!val;
+              try { localStorage.setItem(storageKeyFocus, on ? '1' : '0'); } catch (e) {}
+              if (focusHidden) focusHidden.value = on ? '1' : '0';
+              if (focusToggle) focusToggle.checked = on;
+            }
+            if (focusToggle) {
+              focusToggle.addEventListener('change', function(){
+                setFocusMode(focusToggle.checked);
+              });
+            }
+            personaBtns.forEach(btn => {
+              btn.addEventListener('click', function(){
+                const key = btn.getAttribute('data-persona');
+                applyPersona(key);
+                setActive(btn);
+              });
+            });
+            // Restore selection on load
+            try {
+              const savedPersona = localStorage.getItem(storageKeyPersona);
+              const savedPrompt = localStorage.getItem(storageKeyPrompt);
+              const savedFocus = localStorage.getItem(storageKeyFocus);
+              if (savedPrompt && hiddenSys) hiddenSys.value = savedPrompt;
+              if (savedPersona) {
+                const match = document.querySelector(`.persona-btn[data-persona="${savedPersona}"]`);
+                setActive(match);
+                setPersonaLabel(savedPersona);
+              }
+              setFocusMode(savedFocus === '1');
+            } catch (e) {}
+          })();
+        </script>
+        {% endblock %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete confirmation modal -->
+<div class="modal fade" id="deleteSessionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content glass">
+      <div class="modal-header">
+        <h5 class="modal-title">Delete chat session</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to delete <strong id="deleteSessionTitle"></strong>?</p>
+      </div>
+      <div class="modal-footer">
+        <form id="deleteSessionForm" method="post" class="m-0">
+          {% csrf_token %}
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger">Delete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Flowchart viewer modal with card -->
+<div class="modal fade" id="flowchartModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content glass">
+      <div class="modal-header">
+        <h5 class="modal-title">Flowchart Viewer</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="card">
+          <div class="card-body" style="min-height: 400px; overflow:auto;">
+            <div id="flowchartContainer" class="w-100"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openDeleteModal(btn) {
+    const titleEl = document.getElementById('deleteSessionTitle');
+    const form = document.getElementById('deleteSessionForm');
+    const modalEl = document.getElementById('deleteSessionModal');
+    const name = btn.getAttribute('data-session-title');
+    const id = btn.getAttribute('data-session-id');
+    const url = btn.getAttribute('data-delete-url');
+    titleEl.textContent = `${name} #${id}`;
+    form.action = url;
+    if (window.bootstrap && bootstrap.Modal) {
+      const m = new bootstrap.Modal(modalEl);
+      m.show();
+    } else {
+      // Fallback: simple display if Bootstrap JS isn't available
+      modalEl.classList.add('show');
+      modalEl.style.display = 'block';
+    }
+  }
+</script>
+{% endblock %}

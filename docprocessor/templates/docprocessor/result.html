@@ -1,0 +1,135 @@
+{% extends 'docprocessor/base.html' %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="row">
+        <div class="col-md-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item active">Result</li>
+                </ol>
+            </nav>
+            
+            <div class="card glass mb-4">
+                <div class="card-header">
+                    <h3 class="mb-0">{{ document.title }}</h3>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <p><strong>Document Type:</strong> {{ document.get_document_type_display }}</p>
+                            <p><strong>Processing Type:</strong> {{ document.get_processing_type_display }}</p>
+                        </div>
+                        <div class="col-md-6 text-md-end">
+                            <p><strong>Uploaded:</strong> {{ document.uploaded_at|date:"F d, Y H:i" }}</p>
+                            <p><strong>Processed:</strong> {{ result.processed_at|date:"F d, Y H:i" }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card glass h-100">
+                        <div class="card-header">
+                            <h5 class="mb-0">Original Text</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="result-container glass">
+                                <div class="text-preview">
+                                    <pre style="white-space: pre-wrap; font-family: inherit;">{{ extracted_text|slice:":1800" }}</pre>
+                                    <div class="fade-out"></div>
+                                </div>
+                                <p class="text-muted small mt-2 mb-0">Preview of original text.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-6">
+                    <div class="card glass h-100">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                {% if document.processing_type == 'summarize' %}
+                                    Summary
+                                {% elif document.processing_type == 'generate' %}
+                                    Generated Answers
+                                {% elif document.processing_type == 'analyze' %}
+                                    Analysis
+                                {% elif document.processing_type == 'translate' %}
+                                    Translation
+                                {% else %}
+                                    Result
+                                {% endif %}
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="result-container glass result-scroll">
+                                <div style="white-space: pre-wrap; font-family: inherit;">{{ result.result_text }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-4 text-center d-flex flex-wrap justify-content-center align-items-center gap-2">
+                <a href="{% url 'dashboard' %}" class="btn btn-primary">
+                    <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+                </a>
+                <a href="{% url 'download_result_pdf' result.id %}" class="btn btn-success">
+                    <i class="fas fa-file-pdf me-2"></i>Download PDF
+                </a>
+                <!-- Translate: show language dropdown after clicking Translate -->
+                <div class="dropdown">
+                    <button class="btn btn-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-language me-2"></i>Translate
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-dark">
+                        <li><a class="dropdown-item" href="#" data-lang="en">English</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="es">Spanish</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="fr">French</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="de">German</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="hi">Hindi</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="it">Italian</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="pt">Portuguese</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="ru">Russian</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="tr">Turkish</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="zh">Chinese</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="ja">Japanese</a></li>
+                        <li><a class="dropdown-item" href="#" data-lang="ko">Korean</a></li>
+                    </ul>
+                </div>
+                <!-- Hidden form submitted after language selection -->
+                <form id="translateForm" method="post" action="{% url 'translate_processed_result' result.id %}" class="d-none">
+                    {% csrf_token %}
+                    <input type="hidden" name="target_language" id="targetLanguageInput" />
+                    <input type="hidden" name="source_language" value="auto" />
+                </form>
+                <a href="{% url 'upload_document' %}" class="btn btn-outline-primary">
+                    <i class="fas fa-upload me-2"></i>Upload Another Document
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  (function(){
+    const form = document.getElementById('translateForm');
+    const langInput = document.getElementById('targetLanguageInput');
+    document.querySelectorAll('.dropdown-item[data-lang]').forEach(function(item){
+      item.addEventListener('click', function(e){
+        e.preventDefault();
+        const lang = this.getAttribute('data-lang');
+        if (lang && form && langInput) {
+          langInput.value = lang;
+          form.submit();
+        }
+      });
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% load static %}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
+    <title>Smartly - AI Document Processor</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Inter font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- App Theme CSS -->
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <style>
+      body { font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', Arial, sans-serif; }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Navigation -->
+    <header class="site-header">
+      <nav class="navbar navbar-expand-lg">
+        <div class="container">
+            <a class="navbar-brand" href="{% url 'home' %}">
+                <i class="fas fa-brain me-2"></i>Smartly
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="{% url 'home' %}">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'dashboard' in request.path %}active{% endif %}" href="{% url 'dashboard' %}">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'summarize' in request.path %}active{% endif %}" href="{% url 'summarize' %}">Summarize</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'generate' in request.path %}active{% endif %}" href="{% url 'generate' %}">Generate</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'analyze' in request.path %}active{% endif %}" href="{% url 'analyze' %}">Analyze</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'chat' in request.path %}active{% endif %}" href="{% url 'chat' %}">Chat</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'accessibility' in request.path %}active{% endif %}" href="{% url 'accessibility' %}">Accessibility</a>
+                    </li>
+                    {% if request.user.is_authenticated %}
+                    <li class="nav-item dropdown">
+                        <button class="nav-link nav-username dropdown-toggle" id="userDropdown" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-user-circle me-2"></i>Hi, {{ request.user.username }}
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                            <li><a class="dropdown-item" href="{% url 'logout' %}"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+                        </ul>
+                    </li>
+                    {% else %}
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'login' in request.path %}active{% endif %}" href="{% url 'login' %}">Login</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'register' in request.path %}active{% endif %}" href="{% url 'register' %}">Register</a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+      </nav>
+    </header>
+
+    <!-- Main Content -->
+    <main>
+        {% if messages %}
+            <div class="container mt-3">
+                {% for message in messages %}
+                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="site-footer footer py-4 mt-5">
+        <div class="container">
+            <div class="row gy-4 align-items-center">
+                <!-- Brand & tagline -->
+                <div class="col-md-4">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="fas fa-brain me-2"></i>
+                        <span class="h5 mb-0">Smartly</span>
+                    </div>
+                    <p class="small text-muted mb-2">AI-powered document processing and analysis.</p>
+                    <div class="d-flex gap-3 footer-social">
+                        <a href="#" aria-label="GitHub" class="text-muted"><i class="fab fa-github"></i></a>
+                        <a href="#" aria-label="Twitter" class="text-muted"><i class="fab fa-twitter"></i></a>
+                        <a href="#" aria-label="Email" class="text-muted"><i class="fas fa-envelope"></i></a>
+                    </div>
+                </div>
+
+                <!-- Navigation links -->
+                <div class="col-md-5">
+                    <div class="row">
+                        <div class="col-6">
+                            <h6 class="text-uppercase text-muted small mb-2">Explore</h6>
+                            <ul class="list-unstyled footer-links mb-0">
+                                <li><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                                <li><a href="{% url 'summarize' %}">Summarize</a></li>
+                                <li><a href="{% url 'generate' %}">Generate</a></li>
+                                <li><a href="{% url 'analyze' %}">Analyze</a></li>
+                                <li><a href="{% url 'chat' %}">Chat</a></li>
+                            </ul>
+                        </div>
+                        <div class="col-6">
+                            <h6 class="text-uppercase text-muted small mb-2">More</h6>
+                            <ul class="list-unstyled footer-links mb-0">
+                                <li><a href="{% url 'accessibility' %}">Accessibility</a></li>
+                                <li><a href="#" aria-disabled="true">Privacy</a></li>
+                                <li><a href="#" aria-disabled="true">Terms</a></li>
+                                <li><a href="#" aria-disabled="true">Support</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Year & back to top -->
+                <div class="col-md-3 text-md-end">
+                    <div class="small text-muted">&copy; {% now "Y" %} Smartly</div>
+                    <div class="small"><a href="#" class="text-decoration-none"><i class="fas fa-arrow-up me-1"></i>Back to top</a></div>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Scroll reveal script -->
+    <script>
+      (function(){
+        const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (prefersReduced) return;
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('is-visible');
+            }
+          });
+        }, { threshold: 0.12, rootMargin: '0px 0px -10% 0px' });
+        document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+      })();
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

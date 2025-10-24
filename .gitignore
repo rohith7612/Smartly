@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Django
+db.sqlite3
+*.log
+/staticfiles/
+/collectstatic/
+
+# User uploads
+/media/
+
+# IDE/editor
+.vscode/
+.idea/
+
+# Environment
+.env
+
+# Trae / local caches
+.trae/
