@@ -4,7 +4,7 @@ services:
     runtime: python
     region: oregon
     buildCommand: ./render-build.sh
-    startCommand: gunicorn smartly.wsgi:application --bind 0.0.0.0:$PORT
+    startCommand: bash -c "python manage.py migrate && gunicorn smartly.wsgi:application --bind 0.0.0.0:$PORT"
     envVars:
       - key: SECRET_KEY
         generateValue: true
