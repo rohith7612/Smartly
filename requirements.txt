@@ -9,3 +9,4 @@ python-docx
 pytesseract
 Pillow
 youtube-transcript-api
+gunicorn
