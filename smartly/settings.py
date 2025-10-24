@@ -143,9 +143,34 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
+# Production flags
+DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 'yes')
+SECRET_KEY = os.getenv('SECRET_KEY', SECRET_KEY)
+
+# Static files for Render
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# Ensure WhiteNoise middleware is present
+if 'whitenoise.middleware.WhiteNoiseMiddleware' not in MIDDLEWARE:
+    MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
+
+# Database: prefer DATABASE_URL if provided (Render Postgres)
+try:
+    import dj_database_url
+    if os.getenv('DATABASE_URL'):
+        DATABASES['default'] = dj_database_url.config(
+            default=os.getenv('DATABASE_URL'),
+            conn_max_age=600,
+            ssl_require=True
+        )
+except Exception:
+    pass
+
+# OCR paths: default to Windows local install; allow overrides via env for Render/Linux
+DEFAULT_TESSERACT_CMD = r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
+DEFAULT_TESSDATA_PREFIX = r"C:\\Program Files\\Tesseract-OCR\\tessdata"
+TESSERACT_CMD = os.getenv('TESSERACT_CMD', DEFAULT_TESSERACT_CMD)
+TESSDATA_PREFIX = os.getenv('TESSDATA_PREFIX', DEFAULT_TESSDATA_PREFIX)
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
-# Tesseract OCR configuration
-# Prefer environment variables; fall back to standard Windows install paths.
-TESSERACT_CMD = os.getenv('TESSERACT_CMD', r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe")
-TESSDATA_PREFIX = os.getenv('TESSDATA_PREFIX', r"C:\\Program Files\\Tesseract-OCR\\tessdata")
+# Windows defaults are defined only for local dev earlier; removed duplicate override for Render.

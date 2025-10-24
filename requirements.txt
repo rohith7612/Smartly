@@ -9,4 +9,8 @@ python-docx
 pytesseract
 Pillow
 youtube-transcript-api
+# Deployment
 gunicorn
+whitenoise
+dj-database-url
+psycopg2-binary
