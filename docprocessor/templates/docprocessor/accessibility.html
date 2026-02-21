@@ -1,0 +1,98 @@
+{% extends 'docprocessor/base.html' %}
+{% load crispy_forms_tags %}
+
+{% block content %}
+<div class="container my-5">
+    <h2 class="mb-4">Accessibility Tools</h2>
+
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card glass">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3 class="mb-0">Model</h3>
+                    <span class="text-muted small">Used across features (Library always uses GPT-3.5)</span>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="row align-items-end">
+                            <div class="col-md-6">
+                                {{ model_form|crispy }}
+                            </div>
+                            <div class="col-md-6">
+                                <button type="submit" name="model_submit" class="btn btn-primary">
+                                    <i class="fas fa-sliders-h me-2"></i>Save Model
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-12 mb-4">
+            <div class="card glass h-100">
+                <div class="card-header">
+                    <h3 class="mb-0">YouTube Watch & Chat</h3>
+                </div>
+                <div class="card-body">
+                    <p class="mb-4">Paste a YouTube link to extract a transcript, watch the video inside Smartly, and
+                        open a chat grounded in the live transcript.</p>
+
+                    <form method="post">
+                        {% csrf_token %}
+                        {{ youtube_form|crispy }}
+                        <div class="mt-4">
+                            <button type="submit" name="youtube_submit" class="btn btn-primary">
+                                <i class="fab fa-youtube me-2"></i>Load Video & Transcript
+                            </button>
+                        </div>
+                    </form>
+
+                    {% if youtube_result %}
+                    <div class="mt-4">
+                        <h5>Video</h5>
+                        {% if youtube_video %}
+                        <div class="ratio ratio-16x9 mb-3">
+                            {% if embed_url %}
+                            <iframe src="{{ embed_url }}" title="YouTube video"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+                            {% else %}
+                            <div class="d-flex align-items-center justify-content-center bg-dark text-white"
+                                style="height:100%;">Unable to embed this video. <a class="ms-2"
+                                    href="{{ youtube_video.url }}" target="_blank" rel="noopener">Open on YouTube</a>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        {% if youtube_video %}
+                        <div class="mt-3 d-flex flex-wrap gap-2">
+                            <a href="{% url 'youtube_watch_chat' %}?video_id={{ youtube_video.id }}"
+                                class="btn btn-primary">
+                                <i class="fas fa-comments me-2"></i>Open Watch & Chat
+                            </a>
+                            <a href="{% url 'summarize' %}?youtube_id={{ youtube_video.id }}"
+                                class="btn btn-outline-secondary">
+                                <i class="fas fa-file-alt me-2"></i>Summarize
+                            </a>
+                            <a href="{% url 'generate' %}?youtube_id={{ youtube_video.id }}"
+                                class="btn btn-outline-secondary">
+                                <i class="fas fa-question-circle me-2"></i>Q&A
+                            </a>
+                            <a href="{% url 'analyze' %}?youtube_id={{ youtube_video.id }}"
+                                class="btn btn-outline-secondary">
+                                <i class="fas fa-chart-line me-2"></i>Analyze
+                            </a>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

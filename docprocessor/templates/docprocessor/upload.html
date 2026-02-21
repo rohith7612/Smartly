@@ -1,0 +1,30 @@
+{% extends 'docprocessor/base.html' %}
+{% load crispy_forms_tags %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card glass">
+                <div class="card-header">
+                    <h3 class="mb-0">Upload Document</h3>
+                </div>
+                <div class="card-body">
+                    <p class="mb-4 card-text">Upload a PDF, DOCX, TXT, or image file to process with our AI tools.</p>
+                    
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        {{ form|crispy }}
+                        <div class="mt-4">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-upload me-2"></i>Upload
+                            </button>
+                            <a href="{% url 'dashboard' %}" class="btn btn-outline">Cancel</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

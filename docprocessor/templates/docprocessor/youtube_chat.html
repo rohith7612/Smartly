@@ -1,0 +1,436 @@
+{% extends 'docprocessor/base.html' %}
+
+{% block content %}
+<div class="container my-5">
+  <h2 class="mb-4">YouTube Watch & Chat</h2>
+  {% if not youtube_video %}
+    <div class="card glass mb-4">
+      <div class="card-header"><h5 class="mb-0">Paste YouTube URL</h5></div>
+      <div class="card-body">
+        <form method="post" action="{% url 'youtube_watch_chat' %}">
+          {% csrf_token %}
+          <div class="row g-3 align-items-end">
+            <div class="col-md-8">
+              <label class="form-label" for="ytUrl">URL</label>
+              <input type="url" class="form-control" id="ytUrl" name="url" placeholder="https://www.youtube.com/watch?v=..." required>
+            </div>
+            <div class="col-md-4">
+              <button type="submit" class="btn btn-primary"><i class="fab fa-youtube me-2"></i>Load</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% else %}
+    <div class="row">
+      <div class="col-lg-3">
+        <!-- Personas Sidebar -->
+        <div class="card glass mb-4">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Personas</h5>
+            <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" data-bs-toggle="modal" data-bs-target="#personaGuideModal">
+              <i class="fas fa-question-circle me-1"></i>Guide
+            </button>
+          </div>
+          <div class="card-body">
+            <p class="text-muted mb-2">Choose a persona to shape how the AI responds to the video content.</p>
+            <div class="mb-3 d-flex flex-wrap gap-2" id="personaButtons">
+              <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="student">Student</button>
+              <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="professor">Professor</button>
+              <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="researcher">Researcher</button>
+              <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="friendly_tutor">Friendly Tutor</button>
+              <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="technical_expert">Technical Expert</button>
+              <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="creative_writer">Creative Writer</button>
+              <button type="button" class="btn btn-outline-primary btn-sm persona-btn" data-persona="socratic_guide">Socratic Guide</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Standalone action buttons moved to sidebar -->
+        <div class="d-grid gap-2 mb-4">
+          <a href="{% url 'summarize' %}?youtube_id={{ youtube_video.id }}" class="btn btn-outline-secondary">
+            <i class="fas fa-file-alt me-2"></i>Summarize Video
+          </a>
+          <a href="{% url 'generate' %}?youtube_id={{ youtube_video.id }}" class="btn btn-outline-secondary">
+            <i class="fas fa-question-circle me-2"></i>Generate Q&A
+          </a>
+          <a href="{% url 'analyze' %}?youtube_id={{ youtube_video.id }}" class="btn btn-outline-secondary">
+            <i class="fas fa-chart-line me-2"></i>Analyze Deeply
+          </a>
+        </div>
+      </div>
+      <div class="col-lg-9">
+        <div class="card glass mb-4">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Video Player</h5>
+            {% if youtube_video.title %}<span class="text-muted small">{{ youtube_video.title }}</span>{% endif %}
+          </div>
+          <div class="card-body">
+            <div class="ratio ratio-16x9">
+              {% if embed_url %}
+              <iframe src="{{ embed_url }}" title="YouTube video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+              {% else %}
+              <div class="d-flex align-items-center justify-content-center bg-dark text-white" style="height:100%;">Unable to embed this video. <a class="ms-2" href="{{ youtube_video.url }}" target="_blank" rel="noopener">Open on YouTube</a></div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        
+        <div class="card glass">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Chat Assistant</h5>
+            <div class="d-flex align-items-center gap-3">
+              <span id="activePersonaLabel" class="badge bg-info d-none"></span>
+              <div class="form-check form-switch m-0" title="When enabled, answers use ONLY the video transcript.">
+                <input class="form-check-input" type="checkbox" id="focusModeToggle">
+                <label class="form-check-label" for="focusModeToggle">Focus Mode</label>
+              </div>
+              {% if active_session %}
+                <span class="badge bg-secondary">Session #{{ active_session.id }}</span>
+              {% endif %}
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#contextCollapse" aria-expanded="false" aria-controls="contextCollapse">
+                Show Context
+              </button>
+            </div>
+          </div>
+          <div class="collapse" id="contextCollapse">
+            <div class="card-body pt-2">
+              <div class="card glass">
+                <div class="card-header"><h6 class="mb-0">Transcript Context</h6></div>
+                <div class="card-body">
+                  <div style="white-space: pre-wrap; font-family: inherit; max-height: 400px; overflow: auto; font-size: 0.9rem;">{{ youtube_video.transcript }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card-body chat-body">
+            <!-- Thin progress bar while sending -->
+            <div id="ytChatProgress" class="progress position-sticky" style="top:0; height:3px; display:none; z-index: 10;">
+              <div class="progress-bar progress-bar-striped progress-bar-animated" style="width:100%" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Loading"></div>
+            </div>
+            <div class="chat-messages mb-3" id="chatMessages">
+              {% for m in chat_messages %}
+                <div class="d-flex mb-3">
+                  {% if m.role == 'user' %}
+                    <div class="message-bubble ms-auto p-3 rounded bubble-user">{{ m.content }}</div>
+                  {% else %}
+                    <div class="message-bubble me-auto p-3 rounded bubble-assistant">{{ m.content }}</div>
+                  {% endif %}
+                </div>
+              {% empty %}
+                <p class="text-muted">Ask a question about this video.</p>
+              {% endfor %}
+            </div>
+            <form method="post" id="chatForm" action="{% url 'youtube_watch_chat' %}?video_id={{ youtube_video.id }}">
+              {% csrf_token %}
+              <input type="hidden" name="video_id" value="{{ youtube_video.id }}" />
+              <input type="hidden" name="session_id" value="{{ active_session.id|default:'' }}" />
+              <input type="hidden" name="system_prompt" id="hiddenSystemPrompt" />
+              <input type="hidden" name="focus_mode" id="focusModeInput" value="0" />
+              <div class="input-group align-items-stretch chat-input-group">
+                <textarea class="form-control chat-input" name="message" rows="1" placeholder="Type your message..."></textarea>
+                <button class="btn btn-primary btn-send" type="submit"><i class="fas fa-paper-plane me-2"></i>Send</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Persona Guide Modal -->
+<div class="modal fade" id="personaGuideModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content glass">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-users me-2"></i>Persona Comparison Guide</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 20%;">Persona</th>
+                <th style="width: 40%;">Core Philosophy</th>
+                <th style="width: 40%;">Response Style</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Student</strong></td>
+                <td>Peer-to-peer learning.</td>
+                <td>Relatable analogies, bullet points, interactive questions.</td>
+              </tr>
+              <tr>
+                <td><strong>Professor</strong></td>
+                <td>Academic rigor & depth.</td>
+                <td>Formal language, structured (Abstract/Analysis), theoretical focus.</td>
+              </tr>
+              <tr>
+                <td><strong>Researcher</strong></td>
+                <td>Evidence-based facts.</td>
+                <td>Technical reports, data-driven, strictly objective.</td>
+              </tr>
+              <tr>
+                <td><strong>Friendly Tutor</strong></td>
+                <td>Building confidence.</td>
+                <td>Warm, simple language, encouraging remarks, emoji support.</td>
+              </tr>
+              <tr>
+                <td><strong>Technical Expert</strong></td>
+                <td>Efficiency & Implementation.</td>
+                <td>Concise, jargon-heavy, code snippets, mathematical proofs.</td>
+              </tr>
+              <tr>
+                <td><strong>Creative Writer</strong></td>
+                <td>Engaging narratives.</td>
+                <td>Story-driven, metaphors, evocative and descriptive flow.</td>
+              </tr>
+              <tr>
+                <td><strong>Socratic Guide</strong></td>
+                <td>Self-discovery.</td>
+                <td>NEVER direct answers. Only thought-provoking questions.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- KaTeX for LaTeX math rendering -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" crossorigin="anonymous" onload="try{renderMathInElement(document.getElementById('chatMessages'),{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false});}catch(e){}"></script>
+<script>
+// Minimal persona injection (reuse from chat page if needed later)
+document.addEventListener('DOMContentLoaded', function(){
+  const msgList = document.getElementById('chatMessages');
+  const progressEl = document.getElementById('ytChatProgress');
+  if (msgList) { msgList.scrollTop = msgList.scrollHeight; }
+  const chatForm = document.getElementById('chatForm');
+  if (chatForm) {
+    // Helper: show a temporary Sending... bubble in the chat
+    function showSendingBubble(list){
+      const wrap = document.createElement('div');
+      wrap.className = 'd-flex mb-3';
+      const bubble = document.createElement('div');
+      bubble.className = 'message-bubble me-auto p-3 rounded bubble-assistant d-flex align-items-center gap-2';
+      bubble.innerHTML = '<span class="spinner-border spinner-border-sm text-secondary" role="status" aria-hidden="true"></span><span class="text-muted">Sending...</span>';
+      wrap.appendChild(bubble);
+      list.appendChild(wrap);
+      list.scrollTop = list.scrollHeight;
+      return { remove(){ try { wrap.remove(); } catch(e){}; } };
+    }
+
+    // Helper: typewriter animation for assistant reply; then replace with formatted content
+    function typeAssistantReply(list, text){
+      const wrap = document.createElement('div');
+      wrap.className = 'd-flex mb-3';
+      const bubble = document.createElement('div');
+      bubble.className = 'message-bubble me-auto p-3 rounded bubble-assistant';
+      const span = document.createElement('span');
+      bubble.appendChild(span);
+      wrap.appendChild(bubble);
+      list.appendChild(wrap);
+      list.scrollTop = list.scrollHeight;
+      const full = String(text || '');
+      const steps = Math.max(40, Math.min(120, Math.ceil(full.length / 8)));
+      const chunk = Math.max(1, Math.ceil(full.length / steps));
+      let idx = 0;
+      const timer = setInterval(() => {
+        const next = full.slice(idx, idx + chunk);
+        span.textContent = (span.textContent || '') + next;
+        idx += chunk;
+        list.scrollTop = list.scrollHeight;
+        if (idx >= full.length) {
+          clearInterval(timer);
+          // Replace with final formatted bubble
+          bubble.innerHTML = '';
+          const pre = document.createElement('div');
+          pre.textContent = full; // plain first
+          bubble.appendChild(pre);
+          try { renderMathInElement(bubble, {delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'$',right:'$',display:false},{left:'\\(',right:'\\)',display:false}],throwOnError:false}); } catch(e) {}
+        }
+      }, 25);
+    }
+
+    // Progress controls
+    function progressStart(){ try { if (progressEl) progressEl.style.display = 'block'; } catch(e){} }
+    function progressStop(){ try { if (progressEl) progressEl.style.display = 'none'; } catch(e){} }
+
+    const PERSONA_PROMPTS = {
+      student: "You are a focused student peer. Summarize information using relatable analogies and study-friendly language. Use bullet points for key takeaways and ask 'Does that make sense?' to keep the conversation interactive.",
+      professor: "You are a distinguished university professor. Use formal, academic language. Structure your responses with 'Abstract', 'Detailed Analysis', and 'Concluding Insights'. Focus on deep theoretical understanding and historical context.",
+      researcher: "You are a methodical researcher. Prioritize data, evidence, and cross-references. Structure responses as a technical report with sections for 'Findings', 'Evidence Base', and 'Uncertainties/Gaps'. Avoid fluff.",
+      friendly_tutor: "You are an encouraging and warm tutor. Use lighthearted language and plenty of encouraging remarks. Focus on building confidence. Break complex ideas into 'bite-sized' pieces with plenty of emoji support for clarity.",
+      technical_expert: "You are a senior technical lead. Be concise and efficient. Use technical jargon correctly. Provide implementation details, code snippets, or mathematical proofs immediately. Focus on 'How' and 'Optimization'.",
+      creative_writer: "You are an imaginative storyteller. Transform information into engaging narratives or metaphors. Use descriptive, evocative language. Avoid dry lists; instead, weave facts into a compelling flow.",
+      socratic_guide: "You are a Socratic mentor. NEVER give direct answers. Instead, respond with thought-provoking questions that lead the user to discover the truth themselves. Guide them step-by-step through their own logic."
+    };
+
+    const PERSONA_DESCRIPTIONS = {
+      student: "Simple language, analogies, and study-focused.",
+      professor: "Formal, academic, and theoretical.",
+      researcher: "Data-driven, technical, and objective.",
+      friendly_tutor: "Encouraging, simple, and warm.",
+      technical_expert: "Direct, technical, and code/math heavy.",
+      creative_writer: "Narrative-driven and evocative.",
+      socratic_guide: "Leading questions only—no direct answers."
+    };
+
+    const SESSION_ID = "{{ active_session.id|default:'yt_new' }}";
+    const storageKeyPersona = `yt_chat_persona_${SESSION_ID}`;
+    const storageKeyPrompt = `yt_chat_system_prompt_${SESSION_ID}`;
+    const personaLabelEl = document.getElementById('activePersonaLabel');
+    const personaBtns = document.querySelectorAll('.persona-btn');
+    const hiddenSys = document.getElementById('hiddenSystemPrompt');
+
+    function setPersonaLabel(key){
+      if (!personaLabelEl) return;
+      const btn = document.querySelector(`.persona-btn[data-persona="${key}"]`);
+      const name = btn ? (btn.textContent || '').trim() : (key || '');
+      const desc = PERSONA_DESCRIPTIONS[key] || '';
+      if (name) {
+        personaLabelEl.innerHTML = `<strong>Persona: ${name}</strong> <span class="ms-1 opacity-75">(${desc})</span>`;
+        personaLabelEl.classList.remove('d-none');
+      } else {
+        personaLabelEl.textContent = '';
+        personaLabelEl.classList.add('d-none');
+      }
+    }
+
+    function setActivePersonaBtn(key){
+      personaBtns.forEach(b => b.classList.remove('active'));
+      const btn = document.querySelector(`.persona-btn[data-persona="${key}"]`);
+      if (btn) btn.classList.add('active');
+    }
+
+    function applyPersona(key){
+      const prompt = PERSONA_PROMPTS[key] || '';
+      try {
+        localStorage.setItem(storageKeyPersona, key);
+        localStorage.setItem(storageKeyPrompt, prompt);
+        if (hiddenSys) hiddenSys.value = prompt;
+        setPersonaLabel(key);
+        setActivePersonaBtn(key);
+      } catch (e) {}
+    }
+
+    personaBtns.forEach(btn => {
+      btn.addEventListener('click', function(){
+        applyPersona(btn.getAttribute('data-persona'));
+      });
+    });
+
+    // Restore Persona
+    try {
+      const savedPersona = localStorage.getItem(storageKeyPersona);
+      const savedPrompt = localStorage.getItem(storageKeyPrompt);
+      if (savedPrompt && hiddenSys) hiddenSys.value = savedPrompt;
+      if (savedPersona) {
+        setPersonaLabel(savedPersona);
+        setActivePersonaBtn(savedPersona);
+      }
+    } catch (e) {}
+
+    chatForm.addEventListener('submit', async function(e){
+      e.preventDefault();
+      
+      // Ensure current persona is injected
+      if (hiddenSys) {
+          const p = localStorage.getItem(storageKeyPrompt);
+          if (p) hiddenSys.value = p;
+      }
+      
+      const submitBtn = chatForm.querySelector('button[type="submit"]');
+      // Grab user text and show it immediately in the chat
+      const textarea = chatForm.querySelector('textarea[name="message"]');
+      const userText = (textarea ? textarea.value : '').trim();
+      if (!userText) return;
+      const userWrap = document.createElement('div');
+      userWrap.className = 'd-flex mb-3';
+      const userBubble = document.createElement('div');
+      userBubble.className = 'message-bubble ms-auto p-3 rounded bubble-user';
+      userBubble.textContent = userText; // safe textContent
+      userWrap.appendChild(userBubble);
+      msgList.appendChild(userWrap);
+      msgList.scrollTop = msgList.scrollHeight;
+      if (textarea) textarea.value = '';
+      let btnOriginal = '';
+      if (submitBtn) { btnOriginal = submitBtn.innerHTML; submitBtn.disabled = true; submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Sending'; }
+      const sending = showSendingBubble(msgList);
+          progressStart();
+          const formData = new FormData(chatForm);
+          
+          // Sync Focus Mode
+          const focusToggle = document.getElementById('focusModeToggle');
+          const focusHidden = document.getElementById('focusModeInput');
+          const SESSION_ID = "{{ active_session.id|default:'yt_new' }}";
+          const storageKeyFocus = `yt_chat_focus_mode_${SESSION_ID}`;
+      
+          if (focusToggle && focusHidden) {
+              focusHidden.value = focusToggle.checked ? '1' : '0';
+              formData.set('focus_mode', focusHidden.value);
+          }
+      
+          // Ensure cleared input does not drop the message from the POST      formData.set('message', userText);
+      const csrf = chatForm.querySelector('input[name="csrfmiddlewaretoken"]').value;
+      try {
+        const resp = await fetch(chatForm.action, {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrf },
+          body: formData
+        });
+        const data = await resp.json();
+        // Prefer explicit assistant_reply if provided
+        const explicit = (data.assistant_reply || '').trim();
+        if (explicit) {
+          typeAssistantReply(msgList, explicit);
+        } else if (Array.isArray(data.messages)) {
+          const last = data.messages[data.messages.length - 1] || null;
+          if (last && last.role === 'assistant') {
+            typeAssistantReply(msgList, last.content || '');
+          }
+          msgList.scrollTop = msgList.scrollHeight;
+        }
+      } catch(err) {
+        console.error('Chat submit failed', err);
+      } finally {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = btnOriginal; }
+        if (sending) sending.remove();
+        progressStop();
+      }
+    });
+
+    // Handle Focus Mode Persistence
+    const focusToggle = document.getElementById('focusModeToggle');
+    const focusHidden = document.getElementById('focusModeInput');
+    const SESSION_ID = "{{ active_session.id|default:'yt_new' }}";
+    const storageKeyFocus = `yt_chat_focus_mode_${SESSION_ID}`;
+
+    if (focusToggle && focusHidden) {
+        focusToggle.addEventListener('change', function() {
+            const on = focusToggle.checked;
+            focusHidden.value = on ? '1' : '0';
+            try { localStorage.setItem(storageKeyFocus, on ? '1' : '0'); } catch(e) {}
+        });
+
+        // Restore
+        try {
+            const saved = localStorage.getItem(storageKeyFocus);
+            if (saved === '1') {
+                focusToggle.checked = true;
+                focusHidden.value = '1';
+            }
+        } catch(e) {}
+    }
+  }
+});
+</script>
+{% endblock %}

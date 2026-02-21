@@ -1,0 +1,35 @@
+Django==4.2.23
+
+# Forms
+django-crispy-forms
+crispy-bootstrap5
+
+# AI & LLMs
+openai>=1.0.0
+anthropic>=0.25.0
+google-genai>=0.2.0
+huggingface-hub>=0.24.0
+
+# Documents & OCR
+reportlab
+pdfplumber
+python-docx
+pytesseract
+Pillow
+youtube-transcript-api
+
+# Environment
+python-dotenv
+
+# Deployment
+whitenoise
+gunicorn
+
+# Celery & Redis
+celery
+redis
+
+# PostgreSQL (REQUIRED FOR RENDER)
+psycopg2-binary
+dj-database-url
+

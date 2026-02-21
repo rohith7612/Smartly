@@ -1,0 +1,366 @@
+{% extends 'docprocessor/base.html' %}
+
+{% block content %}
+<div class="container my-5">
+    <!-- Welcome Banner -->
+    <div class="card glass mb-4">
+        <div class="card-body d-flex justify-content-between align-items-center">
+            <div>
+                {% if request.user.is_authenticated %}
+                    <h3 class="mb-1">Welcome, {{ request.user.username }} 👋</h3>
+                    <p class="text-muted mb-0">Here’s your recent activity and resources.</p>
+                {% else %}
+                    <h3 class="mb-1">Welcome to your Dashboard 👋</h3>
+                    <p class="text-muted mb-0">Sign in to see your personalized activity.</p>
+                {% endif %}
+            </div>
+            <div class="text-end">
+                {% if request.user.is_authenticated %}
+                    <span class="badge bg-primary">Joined {{ request.user.date_joined|date:"M d, Y" }}</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mb-4">
+        <!-- Left: Current Uploaded Documents -->
+        <div class="col-md-6">
+            <div class="card glass">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Current Documents {% if documents_page %}<span class="badge bg-secondary ms-2">{{ documents_page.paginator.count }}</span>{% endif %}</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        {% if documents_page and documents_page.has_previous %}
+                        <a href="{% url 'dashboard' %}?docs_page={{ documents_page.previous_page_number }}&actions_page={{ actions_page.number }}&yt_page={{ youtube_videos_page.number }}&res_page={{ youtube_results_page.number }}" class="btn btn-outline-secondary btn-sm" title="Previous Page">
+                            <i class="fas fa-chevron-left"></i>
+                        </a>
+                        {% endif %}
+                        {% if documents_page %}
+                        <span class="text-muted small">Page {{ documents_page.number }} of {{ documents_page.paginator.num_pages }}</span>
+                        {% endif %}
+                        {% if documents_page and documents_page.has_next %}
+                        <a href="{% url 'dashboard' %}?docs_page={{ documents_page.next_page_number }}&actions_page={{ actions_page.number }}&yt_page={{ youtube_videos_page.number }}&res_page={{ youtube_results_page.number }}" class="btn btn-outline-secondary btn-sm" title="Next Page">
+                            <i class="fas fa-chevron-right"></i>
+                        </a>
+                        {% endif %}
+                        <a href="{% url 'upload_document' %}" class="btn btn-primary btn-sm">
+                            <i class="fas fa-upload me-1"></i> Upload New
+                        </a>
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if documents_page and documents_page.object_list %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Title</th>
+                                        <th>Type</th>
+                                        <th>Date</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for document in documents_page %}
+                                        <tr>
+                                            <td>{{ document.title }}</td>
+                                            <td><span class="badge bg-secondary">{{ document.get_document_type_display }}</span></td>
+                                            <td>{{ document.uploaded_at|date:"M d, Y" }}</td>
+                                            <td>
+                                                {% with last_result=document.results.last %}
+                                                {% if last_result %}
+                                                <a href="{% url 'document_result' last_result.id %}" class="btn btn-sm btn-outline-primary">
+                                                    <i class="fas fa-eye"></i> View
+                                                </a>
+                                                {% else %}
+                                                <a href="{% url 'process_document' document.id %}" class="btn btn-sm btn-outline-primary" title="Run processing">
+                                                    <i class="fas fa-play"></i> Run
+                                                </a>
+                                                {% endif %}
+                                                {% endwith %}
+                                                <button type="button"
+                                                        class="btn btn-sm btn-outline-danger"
+                                                        title="Delete"
+                                                        data-doc-id="{{ document.id }}"
+                                                        data-doc-title="{{ document.title }}"
+                                                        data-delete-url="{% url 'delete_document' document.id %}"
+                                                        onclick="openDeleteDocumentModal(this)">
+                                                    <i class="fas fa-trash-alt"></i> Delete
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4">
+                            <i class="fas fa-file-alt fa-3x mb-3 text-muted"></i>
+                            <p>No documents uploaded yet.</p>
+                            <a href="{% url 'upload_document' %}" class="btn btn-primary">
+                                <i class="fas fa-upload me-2"></i>Upload Your First Document
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Recent Actions -->
+        <div class="col-md-6">
+            <div class="card glass">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Recent Actions {% if actions_page %}<span class="badge bg-secondary ms-2">{{ actions_page.paginator.count }}</span>{% endif %}</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        {% if actions_page and actions_page.has_previous %}
+                        <a href="{% url 'dashboard' %}?docs_page={{ documents_page.number }}&actions_page={{ actions_page.previous_page_number }}&yt_page={{ youtube_videos_page.number }}&res_page={{ youtube_results_page.number }}" class="btn btn-outline-secondary btn-sm" title="Previous Page">
+                            <i class="fas fa-chevron-left"></i>
+                        </a>
+                        {% endif %}
+                        {% if actions_page %}
+                        <span class="text-muted small">Page {{ actions_page.number }} of {{ actions_page.paginator.num_pages }}</span>
+                        {% endif %}
+                        {% if actions_page and actions_page.has_next %}
+                        <a href="{% url 'dashboard' %}?docs_page={{ documents_page.number }}&actions_page={{ actions_page.next_page_number }}&yt_page={{ youtube_videos_page.number }}&res_page={{ youtube_results_page.number }}" class="btn btn-outline-secondary btn-sm" title="Next Page">
+                            <i class="fas fa-chevron-right"></i>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if actions_page and actions_page.object_list %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Document</th>
+                                        <th>Type</th>
+                                        <th>Processed</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for pr in actions_page %}
+                                        <tr>
+                                            <td>{{ pr.document.title }}</td>
+                                            <td><span class="badge bg-primary">{{ pr.document.get_processing_type_display }}</span></td>
+                                            <td>{{ pr.processed_at|date:"M d, Y" }}</td>
+                                            <td>
+                                                <a href="{% url 'document_result' pr.id %}" class="btn btn-sm btn-outline-primary">
+                                                    <i class="fas fa-eye"></i> View
+                                                </a>
+                                                <a href="{% url 'download_result_pdf' pr.id %}" class="btn btn-sm btn-outline-secondary" title="Download PDF">
+                                                    <i class="fas fa-file-pdf"></i> PDF
+                                                </a>
+                                                <button type="button"
+                                                        class="btn btn-sm btn-outline-danger"
+                                                        title="Delete"
+                                                        data-doc-id="{{ pr.id }}"
+                                                        data-doc-title="{{ pr.document.title }}"
+                                                        data-delete-url="{% url 'delete_processed_result' pr.id %}"
+                                                        onclick="openDeleteDocumentModal(this)">
+                                                    <i class="fas fa-trash-alt"></i> Delete
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4">
+                            <i class="fas fa-tasks fa-3x mb-3 text-muted"></i>
+                            <p>No actions yet.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card glass">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">YouTube Videos</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        {% if youtube_videos_page and youtube_videos_page.has_previous %}
+                        <a href="{% url 'dashboard' %}?docs_page={{ documents_page.number }}&yt_page={{ youtube_videos_page.previous_page_number }}&res_page={{ youtube_results_page.number }}" class="btn btn-outline-secondary btn-sm" title="Previous Page">
+                            <i class="fas fa-chevron-left"></i>
+                        </a>
+                        {% endif %}
+                        {% if youtube_videos_page %}
+                        <span class="text-muted small">Page {{ youtube_videos_page.number }} of {{ youtube_videos_page.paginator.num_pages }}</span>
+                        {% endif %}
+                        {% if youtube_videos_page and youtube_videos_page.has_next %}
+                        <a href="{% url 'dashboard' %}?docs_page={{ documents_page.number }}&yt_page={{ youtube_videos_page.next_page_number }}&res_page={{ youtube_results_page.number }}" class="btn btn-outline-secondary btn-sm" title="Next Page">
+                            <i class="fas fa-chevron-right"></i>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if youtube_videos_page and youtube_videos_page.object_list %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Title/URL</th>
+                                        <th>Date</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for video in youtube_videos_page %}
+                                        <tr>
+                                            <td>{{ video.title|default:video.url }}</td>
+                                            <td>{{ video.processed_at|date:"M d, Y" }}</td>
+                                            <td>
+                                                <a href="{{ video.url }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                                    <i class="fab fa-youtube"></i> View
+                                                </a>
+                                                <button type="button"
+                                                        class="btn btn-sm btn-outline-danger"
+                                                        title="Delete"
+                                                        data-doc-id="{{ video.id }}"
+                                                        data-doc-title="{{ video.title|default:video.url }}"
+                                                        data-delete-url="{% url 'delete_youtube_video' video.id %}"
+                                                        onclick="openDeleteDocumentModal(this)">
+                                                    <i class="fas fa-trash-alt"></i> Delete
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4">
+                            <i class="fab fa-youtube fa-3x mb-3 text-muted"></i>
+                            <p>No YouTube videos processed yet.</p>
+                            <a href="{% url 'accessibility' %}" class="btn btn-primary">
+                                <i class="fab fa-youtube me-2"></i>Process YouTube Video
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card glass">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">YouTube Processed Results {% if youtube_results_page %}<span class="badge bg-secondary ms-2">{{ youtube_results_page.paginator.count }}</span>{% endif %}</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        {% if youtube_results_page and youtube_results_page.has_previous %}
+                        <a href="{% url 'dashboard' %}?docs_page={{ documents_page.number }}&yt_page={{ youtube_videos_page.number }}&res_page={{ youtube_results_page.previous_page_number }}" class="btn btn-outline-secondary btn-sm" title="Previous Page">
+                            <i class="fas fa-chevron-left"></i>
+                        </a>
+                        {% endif %}
+                        {% if youtube_results_page %}
+                        <span class="text-muted small">Page {{ youtube_results_page.number }} of {{ youtube_results_page.paginator.num_pages }}</span>
+                        {% endif %}
+                        {% if youtube_results_page and youtube_results_page.has_next %}
+                        <a href="{% url 'dashboard' %}?docs_page={{ documents_page.number }}&yt_page={{ youtube_videos_page.number }}&res_page={{ youtube_results_page.next_page_number }}" class="btn btn-outline-secondary btn-sm" title="Next Page">
+                            <i class="fas fa-chevron-right"></i>
+                        </a>
+                        {% endif %}
+                        <a href="{% url 'accessibility' %}" class="btn btn-primary btn-sm">
+                            <i class="fab fa-youtube me-1"></i> Process New
+                        </a>
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if youtube_results_page and youtube_results_page.object_list %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Video</th>
+                                        <th>Type</th>
+                                        <th>Date</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for res in youtube_results_page %}
+                                        <tr>
+                                            <td>{{ res.youtube_video.title|default:res.youtube_video.url }}</td>
+                                            <td><span class="badge bg-primary">{{ res.get_processing_type_display }}</span></td>
+                                            <td>{{ res.processed_at|date:"M d, Y" }}</td>
+                                            <td>
+                                                <a href="{% url 'youtube_result' res.id %}" class="btn btn-sm btn-outline-primary">
+                                                    <i class="fas fa-eye"></i> View
+                                                </a>
+                                                <button type="button"
+                                                        class="btn btn-sm btn-outline-danger"
+                                                        title="Delete"
+                                                        data-doc-id="{{ res.id }}"
+                                                        data-doc-title="{{ res.youtube_video.title|default:res.youtube_video.url }}"
+                                                        data-delete-url="{% url 'delete_youtube_result' res.id %}"
+                                                        onclick="openDeleteDocumentModal(this)">
+                                                    <i class="fas fa-trash-alt"></i> Delete
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4">
+                            <i class="fas fa-list fa-3x mb-3 text-muted"></i>
+                            <p>No YouTube processed results yet.</p>
+                            <a href="{% url 'accessibility' %}" class="btn btn-primary">
+                                <i class="fab fa-youtube me-2"></i>Process YouTube Video
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Delete Document confirmation modal -->
+<div class="modal fade" id="deleteDocumentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content glass">
+      <div class="modal-header">
+        <h5 class="modal-title">Delete document</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to delete <strong id="deleteDocumentTitle"></strong>? This cannot be undone.</p>
+      </div>
+      <div class="modal-footer">
+        <form id="deleteDocumentForm" method="post" class="m-0">
+          {% csrf_token %}
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger">Delete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openDeleteDocumentModal(btn) {
+    const titleEl = document.getElementById('deleteDocumentTitle');
+    const form = document.getElementById('deleteDocumentForm');
+    const modalEl = document.getElementById('deleteDocumentModal');
+    const title = btn.getAttribute('data-doc-title');
+    const id = btn.getAttribute('data-doc-id');
+    const url = btn.getAttribute('data-delete-url');
+    titleEl.textContent = `${title} (#${id})`;
+    form.action = url;
+    if (window.bootstrap && bootstrap.Modal) {
+      const m = new bootstrap.Modal(modalEl);
+      m.show();
+    } else {
+      modalEl.classList.add('show');
+      modalEl.style.display = 'block';
+    }
+  }
+</script>
+{% endblock %}

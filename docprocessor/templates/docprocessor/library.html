@@ -1,0 +1,161 @@
+{% extends 'docprocessor/base.html' %}
+{% load static %}
+
+{% block extra_css %}
+<style>
+  body { display:flex; min-height:100vh; flex-direction:column; }
+  main { flex: 1 0 auto; }
+  .site-footer { margin-top: auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 1200px; margin: 24px auto 0;">
+  <h2 style="margin-bottom: 16px;">Your Library</h2>
+  <p style="color: #555; margin-top: -8px; margin-bottom: 24px;">Documents grouped by AI-detected topics on the left. Track your study progress and focus analytics on the right.</p>
+
+  <div style="display: flex; gap: 24px; align-items: flex-start;">
+    <!-- Left: Topics & Documents -->
+    <section style="flex: 3; min-width: 0;">
+      {% if topics %}
+        {% for topic in topics %}
+          <div class="card feature-card" style="margin-bottom: 16px;">
+            <div style="padding: 12px 16px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+              <h3 style="margin: 0; font-size: 18px;">{{ topic.name }}</h3>
+              <span style="font-size: 12px; color: #666;">{{ topic.documents|length }} docs</span>
+            </div>
+            <ul style="list-style: none; margin: 0; padding: 8px 16px;">
+              {% for doc in topic.documents %}
+                <li style="padding: 10px 0; border-bottom: 1px dashed #eee; display: flex; justify-content: space-between;">
+                  <div>
+                    <strong>{{ doc.title }}</strong>
+                    <span style="color:#666; font-size: 12px;"> · {{ doc.get_document_type_display }} · {{ doc.uploaded_at|date:'M d, Y H:i' }}</span>
+                  </div>
+                  <div style="display: flex; gap: 8px;">
+                    {% with last=doc.processedresult_set.last %}
+                      {% if last %}
+                        <a href="{% url 'document_result' last.id %}" style="font-size: 12px; color: #2563eb; text-decoration: none;">View last result</a>
+                      {% else %}
+                        <span style="font-size: 12px; color: #999;">No results yet</span>
+                      {% endif %}
+                    {% endwith %}
+                  </div>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="card feature-card" style="padding: 16px;">
+          <p>No documents yet. Upload from the <a href="{% url 'upload_document' %}">upload page</a>.</p>
+        </div>
+      {% endif %}
+    </section>
+
+    <!-- Right: Study Progress & Analytics -->
+    <aside style="flex: 2; min-width: 320px;">
+      <div class="card glass mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Study Progress</h5>
+          <span class="badge bg-primary rounded-pill">{{ documents_count }} Total Docs</span>
+        </div>
+        <div class="card-body">
+          <div class="row g-3 text-center mb-4">
+            <div class="col-6">
+              <div class="p-3 bg-light rounded shadow-sm">
+                <h6 class="text-muted small text-uppercase mb-1">Learned</h6>
+                <div class="h4 mb-0 text-primary">{{ processed_count }}</div>
+                <div class="small text-muted">Docs Processed</div>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="p-3 bg-light rounded shadow-sm">
+                <h6 class="text-muted small text-uppercase mb-1">Time Spent</h6>
+                <div class="h4 mb-0 text-success">{{ learning_hours }}h</div>
+                <div class="small text-muted">Estimated</div>
+              </div>
+            </div>
+          </div>
+
+          <h6 class="mb-3 text-muted small text-uppercase fw-bold">Learning Depth</h6>
+          <div class="progress mb-4" style="height: 10px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: {{ processed_percentage }}%" aria-valuenow="{{ processed_percentage }}" aria-valuemin="0" aria-valuemax="100"></div>
+          </div>
+          <p class="small text-muted mb-4">You have processed <strong>{{ processed_percentage }}%</strong> of your total document library.</p>
+
+          <h6 class="mb-3 text-muted small text-uppercase fw-bold">Topic Focus Distribution</h6>
+          <div style="height: 250px; position: relative;">
+            <canvas id="topicChart"></canvas>
+          </div>
+          
+          <hr class="my-4">
+          
+          <h6 class="mb-3 text-muted small text-uppercase fw-bold">Recent Activity</h6>
+          <div class="d-flex align-items-center gap-3 p-3 bg-primary-subtle rounded border border-primary-subtle">
+            <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+              <i class="fas fa-comments"></i>
+            </div>
+            <div>
+              <div class="fw-bold">{{ chat_activity }} Chat Messages</div>
+              <div class="small text-muted">Interaction depth across docs</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card glass">
+        <div class="card-body">
+          <h6 class="card-title mb-2">Learning Tip</h6>
+          <p class="card-text small text-muted">You've focused most on <strong>{{ topics.0.name|default:"new topics" }}</strong>. Try cross-referencing these documents with "Socratic Guide" persona to deepen your understanding.</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+(function() {
+  const ctx = document.getElementById('topicChart').getContext('2d');
+  const labels = {{ topic_labels|safe }};
+  const counts = {{ topic_counts|safe }};
+  
+  if (labels.length === 0) {
+      ctx.font = '14px Inter';
+      ctx.textAlign = 'center';
+      ctx.fillText('No data available yet.', 125, 125);
+  } else {
+      new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: counts,
+            backgroundColor: [
+              '#3b82f6', '#10b981', '#f59e0b', '#ef4444', 
+              '#8b5cf6', '#ec4899', '#64748b', '#22d3ee'
+            ],
+            borderWidth: 0,
+            hoverOffset: 10
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: {
+                usePointStyle: true,
+                padding: 15,
+                font: { size: 11 }
+              }
+            }
+          },
+          cutout: '70%'
+        }
+      });
+  }
+})();
+</script>
+{% endblock %}

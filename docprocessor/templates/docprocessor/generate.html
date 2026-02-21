@@ -1,0 +1,124 @@
+{% extends 'docprocessor/base.html' %}
+{% load crispy_forms_tags %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card glass">
+                <div class="card-header">
+                    <h3 class="mb-0">Generate Answers</h3>
+                </div>
+                <div class="card-body">
+                    <p class="mb-4">Select one or multiple documents to generate content using AI.</p>
+                    <div class="mb-3">
+                        <h6 class="mb-2">Generation Type</h6>
+                        <div class="d-grid gap-2">
+                            <label class="btn btn-outline-primary text-start">
+                                <input type="radio" name="preset" value="exam_answers" class="form-check-input me-2" checked> Exam Answers
+                                <div class="small text-muted">Generate comprehensive answers for exam questions</div>
+                            </label>
+                            <label class="btn btn-outline-primary text-start">
+                                <input type="radio" name="preset" value="practice_questions" class="form-check-input me-2"> Practice Questions
+                                <div class="small text-muted">Create practice questions with detailed answers</div>
+                            </label>
+                            <label class="btn btn-outline-primary text-start">
+                                <input type="radio" name="preset" value="study_plan" class="form-check-input me-2"> Study Plan
+                                <div class="small text-muted">Generate personalized study schedule and plan</div>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label d-flex justify-content-between align-items-center">
+                            <span>Reply length</span>
+                            <span class="small text-muted"><span id="generateWordsDisplay">{{ request.GET.words|default:200 }}</span> words</span>
+                        </label>
+                        <input type="range" class="form-range" id="generateWordsRange" min="50" max="1000" step="50" value="{{ request.GET.words|default:200 }}">
+                    </div>
+                    
+                    <form method="post">
+                        {% csrf_token %}
+                        {{ select_form|crispy }}
+                        <input type="hidden" name="words" id="generateWordsInput" value="{{ request.GET.words|default:200 }}" />
+                        <input type="hidden" name="preset" id="generatePresetInput" value="exam_answers" />
+                        <div class="mt-4">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-question-circle me-2"></i>Generate Answers
+                            </button>
+                            <a href="{% url 'dashboard' %}" class="btn btn-outline">Cancel</a>
+                        </div>
+                    </form>
+
+                    {% if external_result %}
+                    <hr class="my-4" />
+                    <h5 class="mb-2">Result from {{ external_source }}:</h5>
+                    <div class="result-container glass result-scroll">
+                        <div style="white-space: pre-wrap; font-family: inherit;">{{ external_result }}</div>
+                    </div>
+                    <div class="mt-3">
+                        <form method="get" action="{% url 'generate' %}" class="d-inline">
+                            {% if youtube_id %}
+                                <input type="hidden" name="youtube_id" value="{{ youtube_id }}" />
+                            {% endif %}
+                            <input type="hidden" name="words" id="generateWordsGet" value="{{ request.GET.words|default:200 }}" />
+                            <input type="hidden" name="preset" id="generatePresetGet" value="{{ request.GET.preset|default:'exam_answers' }}" />
+                            <button type="submit" class="btn btn-outline-primary btn-sm">
+                                <i class="fas fa-sync-alt me-1"></i> Re-run with length
+                            </button>
+                        </form>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+  const range = document.getElementById('generateWordsRange');
+  const display = document.getElementById('generateWordsDisplay');
+  const hiddenPost = document.getElementById('generateWordsInput');
+  const hiddenGet = document.getElementById('generateWordsGet');
+  const presetInputs = document.querySelectorAll('input[name="preset"]');
+  const presetPost = document.getElementById('generatePresetInput');
+  const presetGet = document.getElementById('generatePresetGet');
+  function sync(val){
+    if (display) display.textContent = val;
+    if (hiddenPost) hiddenPost.value = val;
+    if (hiddenGet) hiddenGet.value = val;
+  }
+  if (range){
+    range.addEventListener('input', function(){ sync(range.value); });
+    sync(range.value);
+  }
+  presetInputs.forEach(function(r){
+    r.addEventListener('change', function(){
+      if (r.checked){
+        if (presetPost) presetPost.value = r.value;
+        if (presetGet) presetGet.value = r.value;
+      }
+    });
+    if (r.checked){
+      if (presetPost) presetPost.value = r.value;
+      if (presetGet) presetGet.value = r.value;
+    }
+  });
+})();
+</script>
+<!-- Select2 styles/scripts for dropdown multi-select -->
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+  (function(){
+    const el = document.getElementById('id_documents');
+    if (el) {
+      $(el).select2({
+        placeholder: 'Select one or more documents',
+        width: '100%',
+        allowClear: true
+      });
+    }
+  })();
+</script>
+{% endblock %}
