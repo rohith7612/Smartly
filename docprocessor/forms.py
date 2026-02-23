@@ -48,13 +48,14 @@ class YouTubeURLForm(forms.ModelForm):
 class ModelSelectionForm(forms.Form):
     """Dropdown to select AI model/provider used across features (except Library)."""
     MODEL_CHOICES = [
+        ('auto', 'Auto (MiniMax Optimizer)'),
         ('gpt-3.5-turbo', 'OpenAI — GPT-3.5 Turbo'),
         ('gpt-4', 'OpenAI — GPT-4'),
         ('gpt-4o', 'OpenAI — GPT-4o'),
         ('gpt-4o-mini', 'OpenAI — GPT-4o Mini'),
         ('claude-3-haiku-20240307', 'Claude — 3 Haiku'),
-        ('gemini-2.0-pro-exp-02-05', 'Gemini — 2.0 Pro'),
-        ('gemini-2.0-flash', 'Gemini — 2.0 Flash'),
+        ('models/gemini-2.5-flash', 'Gemini — 2.5 Flash'),
+        ('models/gemini-2.0-flash', 'Gemini — 2.0 Flash'),
         ('MiniMaxAI/MiniMax-M2:novita', 'Hugging Face — MiniMax M2 Novita'),
     ]
     ai_model = forms.ChoiceField(choices=MODEL_CHOICES, widget=forms.Select(attrs={'class': 'form-select'}))

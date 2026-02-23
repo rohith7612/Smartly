@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'docprocessor',
+    'router',
     'crispy_forms',
     'crispy_bootstrap5',
 ]
@@ -177,6 +178,9 @@ ALLOW_MODEL_FALLBACKS = bool(os.getenv('ALLOW_MODEL_FALLBACKS', ''))
 # Prefer environment variables; fall back to standard Windows install paths.
 TESSERACT_CMD = os.getenv("TESSERACT_CMD", "/usr/bin/tesseract")
 TESSDATA_PREFIX = os.getenv("TESSDATA_PREFIX", "/usr/share/tesseract-ocr/4.00/tessdata")
+
+# MiniMax Router Settings
+ENABLE_ROUTER_EXPERIMENT = os.getenv('ENABLE_ROUTER_EXPERIMENT', 'True') == 'True'
 
 # Celery Configuration
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
