@@ -1,6 +1,10 @@
 import os
 import logging
-import pdfplumber
+import re
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
 import docx
 import pytesseract
 from PIL import Image, ImageOps, ImageFilter
@@ -27,6 +31,10 @@ from urllib.error import URLError, HTTPError
 from urllib.parse import urlencode, urlparse, parse_qs, quote, unquote
 from contextlib import contextmanager
 import tempfile
+import time
+from router.models import ModelProfile, ModelRuntimeStats
+from router.task_features import extract_task_features
+from router.minimax_router import select_model as get_best_model
 
 @contextmanager
 def temporary_file_from_content(content, suffix=None):
@@ -95,6 +103,9 @@ if _tesseract_cmd:
 
 def extract_text_from_pdf(file_path):
     """Extract text from PDF file using pdfplumber for better reliability and layout preservation."""
+    if pdfplumber is None:
+        return "Error: PDF extraction library (pdfplumber) failed to load. Please try reinstalling dependencies or use a TXT/DOCX file."
+    
     text = ""
     try:
         with pdfplumber.open(file_path) as pdf:
@@ -209,7 +220,46 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
         except Exception:
             return text
     try:
+        start_time = time.time()
         m = (model or "gpt-3.5-turbo").lower()
+        
+        # MiniMax Routing Integration
+        actual_model_name = model
+        selected_model_obj = None
+        
+        # Phase 10: Experimental Mode Logging
+        if m != "auto" and getattr(settings, 'ENABLE_ROUTER_EXPERIMENT', False):
+            try:
+                # Predict what Auto would have chosen for comparison
+                combined_text_exp = (system_prompt or "") + (messages[-1].get('content', '') if messages else "")
+                task_type_exp = "chat"
+                exp_features = extract_task_features(combined_text_exp, task_type_exp)
+                exp_model = get_best_model(exp_features)
+                if exp_model:
+                    logging.getLogger(__name__).info(f"[EXPERIMENT] Static choice: {model} | Router would have chosen: {exp_model.model_name}")
+            except Exception:
+                pass
+
+        if m == "auto":
+            # Extract features from the latest message for routing
+            # We use the system prompt + last user message as a proxy for the task content
+            combined_text = (system_prompt or "") + (messages[-1].get('content', '') if messages else "")
+            # Default task type detection
+            task_type = "chat"
+            if "summarize" in (system_prompt or "").lower(): task_type = "summarize"
+            elif "analyze" in (system_prompt or "").lower(): task_type = "analyze"
+            elif "generate" in (system_prompt or "").lower(): task_type = "generate"
+            
+            features = extract_task_features(combined_text, task_type)
+            selected_model_obj = get_best_model(features)
+            if selected_model_obj:
+                actual_model_name = selected_model_obj.model_name
+                m = actual_model_name.lower()
+                logging.getLogger(__name__).info(f"MiniMax Router selected: {actual_model_name}")
+            else:
+                actual_model_name = "gpt-3.5-turbo"
+                m = "gpt-3.5-turbo"
+
         ALLOW_FALLBACKS = bool(getattr(settings, 'ALLOW_MODEL_FALLBACKS', False))
         # Resolve keys dynamically each call
         OPENAI_KEY = os.getenv('OPENAI_API_KEY') or getattr(settings, 'OPENAI_API_KEY', None)
@@ -241,13 +291,45 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
             if msg.get('role') == 'user':
                 last_user_msg = (msg.get('content') or '').strip()
                 break
+        def _finish(res_text, used_model_name):
+            try:
+                duration = time.time() - start_time
+                # Attempt to log runtime stats
+                mod_prof = ModelProfile.objects.filter(model_name=used_model_name).first()
+                if mod_prof:
+                    # Estimate tokens for cost
+                    # In a real scenario, we'd get this from the API response
+                    in_tokens = extract_task_features(str(messages), "chat")["token_count"]
+                    out_tokens = extract_task_features(res_text, "chat")["token_count"]
+                    cost = (in_tokens/1000 * mod_prof.price_per_1k_input_tokens) + (out_tokens/1000 * mod_prof.price_per_1k_output_tokens)
+                    
+                    stat = ModelRuntimeStats.objects.create(
+                        model=mod_prof,
+                        task_type="chat", # or dynamic
+                        actual_latency=duration,
+                        actual_cost=cost,
+                        token_count=in_tokens + out_tokens
+                    )
+
+                    # Trigger Hallucination Audit for substantive tasks
+                    # Don't audit the judge itself to avoid infinite loops
+                    if used_model_name != "MiniMaxAI/MiniMax-M2:novita" and res_text and len(res_text) > 50:
+                        from router.tasks import audit_hallucination_task
+                        # Get a snippet of the source content from messages
+                        source_snippet = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), "")
+                        if source_snippet:
+                             audit_hallucination_task.delay(stat.id, source_snippet, res_text)
+            except Exception as le:
+                logging.getLogger(__name__).error(f"Failed to log runtime stats: {le}")
+            return res_text
+
         if m.startswith("claude") or m.startswith("anthropic"):
             if Anthropic is None or not ANTH_KEY:
                 logging.getLogger(__name__).warning(
                     f"Anthropic not configured: import={'ok' if Anthropic else 'missing'}, key_present={bool(ANTH_KEY)}"
                 )
                 if not ALLOW_FALLBACKS:
-                    return f"Provider not configured for model '{model}'. Set ANTHROPIC_API_KEY to use this model.\n\n[model: {model}]"
+                    return _finish(f"Provider not configured for model '{model}'. Set ANTHROPIC_API_KEY to use this model.\n\n[model: {model}]", model)
                 # Provider not configured: fall back to OpenAI only if allowed
                 final_messages = []
                 if system_prompt:
@@ -261,21 +343,21 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
                     max_tokens=max_tokens,
                     temperature=0.3,
                 )
-                return (response.choices[0].message.content or "") + "\n\n[model: gpt-3.5-turbo]"
+                return _finish((response.choices[0].message.content or "") + "\n\n[model: gpt-3.5-turbo]", "gpt-3.5-turbo")
             client = Anthropic(api_key=ANTH_KEY)
             # Anthropic: pass effective system instruction and latest user turn
             user_content = [{"type": "text", "text": last_user_msg or ''}]
             try:
                 resp = client.messages.create(
-                    model=model,
+                    model=actual_model_name,
                     max_tokens=max_tokens,
                     system=effective_system or None,
                     messages=[{"role": "user", "content": user_content}]
                 )
             except Exception as e:
-                logging.getLogger(__name__).exception(f"Anthropic call failed for model='{model}': {e}")
+                logging.getLogger(__name__).exception(f"Anthropic call failed for model='{actual_model_name}': {e}")
                 if not ALLOW_FALLBACKS:
-                    return f"Error calling Anthropic model '{model}': {str(e)}\n\n[model: {model}]"
+                    return _finish(f"Error calling Anthropic model '{actual_model_name}': {str(e)}\n\n[model: {actual_model_name}]", actual_model_name)
                 
                 # Fallback to OpenAI only if allowed
                 final_messages = []
@@ -283,7 +365,7 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
                     final_messages.append({"role": "system", "content": effective_system})
                 final_messages.extend([m for m in messages if m.get('role') != 'system'])
                 if not openai_client:
-                     return f"Anthropic error: {str(e)}. Fallback failed: OpenAI client not initialized.\n\n[model: {model}]"
+                     return "OpenAI client not initialized."
                 
                 try:
                     response = openai_client.chat.completions.create(
@@ -292,9 +374,9 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
                         max_tokens=max_tokens,
                         temperature=0.3,
                     )
-                    return (response.choices[0].message.content or "") + "\n\n[model: gpt-3.5-turbo (fallback)]"
+                    return _finish((response.choices[0].message.content or "") + "\n\n[model: gpt-3.5-turbo (fallback)]", "gpt-3.5-turbo")
                 except Exception as fallback_err:
-                    return f"Anthropic error: {str(e)}. Fallback error: {str(fallback_err)}\n\n[model: {model}]"
+                    return _finish(f"Anthropic error: {str(e)}. Fallback error: {str(fallback_err)}\n\n[model: {actual_model_name}]", actual_model_name)
             out = []
             for p in getattr(resp, 'content', []):
                 try:
@@ -303,16 +385,16 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
                 except Exception:
                     pass
             logging.getLogger(__name__).debug(
-                f"Anthropic success: model='{model}', tokens={max_tokens}, reply_len={len(''.join(out))}"
+                f"Anthropic success: model='{actual_model_name}', tokens={max_tokens}, reply_len={len(''.join(out))}"
             )
-            return (("".join(out) or "") + f"\n\n[model: {model}]")
-        elif m.startswith("gemini") or m.startswith("google"):
+            return _finish((("".join(out) or "") + f"\n\n[model: {actual_model_name}]"), actual_model_name)
+        elif m.startswith("gemini") or m.startswith("google") or m.startswith("models/gemini"):
             if genai is None or not GOOGLE_KEY:
                 logging.getLogger(__name__).warning(
                     f"Gemini not configured: import={'ok' if genai else 'missing'}, key_present={bool(GOOGLE_KEY)}"
                 )
                 if not ALLOW_FALLBACKS:
-                    return f"Provider not configured for model '{model}'. Set GOOGLE_API_KEY to use this model.\n\n[model: {model}]"
+                    return _finish(f"Provider not configured for model '{model}'. Set GOOGLE_API_KEY to use this model.\n\n[model: {model}]", model)
                 # Provider not configured: gracefully fall back to OpenAI
                 final_messages = []
                 if system_prompt:
@@ -326,7 +408,7 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
                     max_tokens=max_tokens or 2000,
                     temperature=0.3,
                 )
-                return (response.choices[0].message.content or "") + "\n\n[model: gpt-3.5-turbo]"
+                return _finish((response.choices[0].message.content or "") + "\n\n[model: gpt-3.5-turbo]", "gpt-3.5-turbo")
             
             # Initialize client with API key
             client = genai.Client(api_key=GOOGLE_KEY)
@@ -340,7 +422,7 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
                 # Generate content
                 prompt_in = last_user_msg or ""
                 resp = client.models.generate_content(
-                    model=model, 
+                    model=actual_model_name, 
                     contents=prompt_in,
                     config=config
                 )
@@ -354,15 +436,15 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
                         text_out = str(resp)
                 
                 logging.getLogger(__name__).debug(
-                    f"Gemini success: model='{model}', reply_len={len(text_out)}"
+                    f"Gemini success: model='{actual_model_name}', reply_len={len(text_out)}"
                 )
-                return (text_out + f"\n\n[model: {model}]")
+                return _finish((text_out + f"\n\n[model: {actual_model_name}]"), actual_model_name)
             except Exception as e:
                 logging.getLogger(__name__).error(
-                    f"Gemini generate_content failed for model='{model}': {e}"
+                    f"Gemini generate_content failed for model='{actual_model_name}': {e}"
                 )
                 if not ALLOW_FALLBACKS:
-                    return f"Error calling Gemini model '{model}': {str(e)}\n\n[model: {model}]"
+                    return _finish(f"Error calling Gemini model '{actual_model_name}': {str(e)}\n\n[model: {actual_model_name}]", actual_model_name)
                 
                 # Fallback to OpenAI
                 final_messages = []
@@ -370,7 +452,7 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
                     final_messages.append({"role": "system", "content": effective_system})
                 final_messages.extend([m for m in messages if m.get('role') != 'system'])
                 if not openai_client:
-                     return f"Gemini error: {str(e)}. Fallback failed: OpenAI client not initialized.\n\n[model: {model}]"
+                     return "OpenAI client not initialized."
                 
                 try:
                     response = openai_client.chat.completions.create(
@@ -379,17 +461,17 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
                         max_tokens=max_tokens,
                         temperature=0.3,
                     )
-                    return (response.choices[0].message.content or "") + "\n\n[model: gpt-3.5-turbo (fallback)]"
+                    return _finish((response.choices[0].message.content or "") + "\n\n[model: gpt-3.5-turbo (fallback)]", "gpt-3.5-turbo")
                 except Exception as fallback_err:
-                    return f"Gemini error: {str(e)}. Fallback error: {str(fallback_err)}\n\n[model: {model}]"
-        elif ('/' in (model or '')) or m.startswith('hf') or ('huggingface' in m):
+                    return _finish(f"Gemini error: {str(e)}. Fallback error: {str(fallback_err)}\n\n[model: {actual_model_name}]", actual_model_name)
+        elif (('/' in (actual_model_name or '')) and not m.startswith('models/gemini')) or m.startswith('hf') or ('huggingface' in m):
             # Hugging Face Inference API
             if InferenceClient is None or not HF_KEY:
                 logging.getLogger(__name__).warning(
                     f"HuggingFace not configured: import={'ok' if InferenceClient else 'missing'}, key_present={bool(HF_KEY)}"
                 )
                 if not ALLOW_FALLBACKS:
-                    return f"Provider not configured for Hugging Face model '{model}'. Set HUGGINGFACE_API_KEY to use this model.\n\n[model: {model}]"
+                    return _finish(f"Provider not configured for Hugging Face model '{actual_model_name}'. Set HUGGINGFACE_API_KEY to use this model.\n\n[model: {actual_model_name}]", actual_model_name)
                 # Provider not configured: fallback to OpenAI only if allowed
                 final_messages = []
                 if effective_system:
@@ -403,7 +485,7 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
                     max_tokens=max_tokens,
                     temperature=0.3,
                 )
-                return (response.choices[0].message.content or "") + "\n\n[model: gpt-3.5-turbo]"
+                return _finish((response.choices[0].message.content or "") + "\n\n[model: gpt-3.5-turbo]", "gpt-3.5-turbo")
             # Build chat messages for OpenAI-compatible chat completions
             final_messages = []
             if effective_system:
@@ -412,9 +494,12 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
             final_messages.extend([m for m in messages if m.get('role') != 'system'])
             try:
                 # Normalize model/provider for Inference Providers router
-                raw_model = (model or '').strip()
+                raw_model = (actual_model_name or '').strip()
                 hf_model = raw_model
                 provider = 'hf-inference'
+                # ... [hf routing logic same as before, but using actual_model_name]
+                # (Skipping for brevity in replacement, but I should keep the logic)
+
                 # If model is of form "org/repo:suffix", detect provider/policy vs revision
                 if ':' in raw_model and '/' in raw_model:
                     base, suffix = raw_model.split(':', 1)
@@ -508,18 +593,18 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
                 
                 if not text_out.strip():
                     logging.getLogger(__name__).warning(f"HF returned empty content for model='{hf_model}'")
-                    return f"Error: The model '{hf_model}' returned an empty response. Please try again.\n\n[model: {hf_model}:{provider}]"
+                    return _finish(f"Error: The model '{hf_model}' returned an empty response. Please try again.\n\n[model: {hf_model}:{provider}]", actual_model_name)
 
                 logging.getLogger(__name__).debug(
                     f"HuggingFace success: model='{hf_model}', provider='{provider}', reply_len={len(text_out)}"
                 )
-                return text_out + f"\n\n[model: {hf_model}:{provider}]"
+                return _finish(text_out + f"\n\n[model: {hf_model}:{provider}]", actual_model_name)
             except Exception:
                 logging.getLogger(__name__).exception(
-                    f"HuggingFace call failed for model='{model}'"
+                    f"HuggingFace call failed for model='{actual_model_name}'"
                 )
                 if not ALLOW_FALLBACKS:
-                    return f"Error calling Hugging Face model '{model}'.\n\n[model: {model}]"
+                    return _finish(f"Error calling Hugging Face model '{actual_model_name}'.\n\n[model: {actual_model_name}]", actual_model_name)
                 # Fallback to OpenAI on error only if allowed
                 final_messages = []
                 if effective_system:
@@ -533,7 +618,7 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
                     max_tokens=max_tokens,
                     temperature=0.3,
                 )
-                return (response.choices[0].message.content or "") + "\n\n[model: gpt-3.5-turbo]"
+                return _finish((response.choices[0].message.content or "") + "\n\n[model: gpt-3.5-turbo]", "gpt-3.5-turbo")
         else:
             # Default OpenAI
             final_messages = []
@@ -543,16 +628,30 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
             if not openai_client:
                  return "OpenAI client not initialized."
             response = openai_client.chat.completions.create(
-                model=model or "gpt-3.5-turbo",
+                model=actual_model_name or "gpt-3.5-turbo",
                 messages=final_messages,
                 max_tokens=max_tokens,
                 temperature=0.3,
             )
             out = response.choices[0].message.content or ""
             out = _strip_think_blocks(out)
-            return (out + f"\n\n[model: {model or 'gpt-3.5-turbo'}]")
+            return _finish((out + f"\n\n[model: {actual_model_name or 'gpt-3.5-turbo'}]"), actual_model_name or "gpt-3.5-turbo")
     except Exception as e:
+        # Log failure for the router to see
+        try:
+            mod_prof = ModelProfile.objects.filter(model_name=actual_model_name if 'actual_model_name' in locals() else model).first()
+            if mod_prof:
+                ModelRuntimeStats.objects.create(
+                    model=mod_prof,
+                    task_type="chat",
+                    actual_latency=0, # Signal failure
+                    actual_cost=0,
+                    token_count=0
+                )
+        except Exception:
+            pass
         return f"Error chatting: {str(e)}\n\n[model: {model or 'unknown'}]"
+
 
 def summarize_text(text, target_words=None, max_tokens=500, preset=None, model=None):
     """Summarize text using selected model/provider with optional preset formatting."""
