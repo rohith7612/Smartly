@@ -3,8 +3,12 @@ import logging
 import re
 try:
     import pdfplumber
-except ImportError:
+except Exception:
     pdfplumber = None
+try:
+    from pypdf import PdfReader as _PdfReader
+except Exception:
+    _PdfReader = None
 import docx
 import pytesseract
 from PIL import Image, ImageOps, ImageFilter
@@ -102,20 +106,32 @@ if _tesseract_cmd:
         pass
 
 def extract_text_from_pdf(file_path):
-    """Extract text from PDF file using pdfplumber for better reliability and layout preservation."""
-    if pdfplumber is None:
-        return "Error: PDF extraction library (pdfplumber) failed to load. Please try reinstalling dependencies or use a TXT/DOCX file."
-    
-    text = ""
-    try:
-        with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
+    """Extract text from PDF file. Uses pdfplumber primarily, falls back to pypdf."""
+    if pdfplumber is not None:
+        try:
+            text = ""
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    extracted = page.extract_text()
+                    if extracted:
+                        text += extracted + "\n"
+            return text
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"pdfplumber failed, trying pypdf fallback: {e}")
+
+    if _PdfReader is not None:
+        try:
+            text = ""
+            reader = _PdfReader(file_path)
+            for page in reader.pages:
                 extracted = page.extract_text()
                 if extracted:
                     text += extracted + "\n"
-    except Exception as e:
-        return f"Error extracting text from PDF: {str(e)}"
-    return text
+            return text
+        except Exception as e:
+            return f"Error extracting text from PDF: {str(e)}"
+
+    return "Error: No PDF extraction library available. Please reinstall dependencies or use a TXT/DOCX file."
 
 def extract_text_from_docx(file_path):
     """Extract text from DOCX file"""
