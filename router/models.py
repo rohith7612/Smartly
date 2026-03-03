@@ -8,6 +8,7 @@ class ModelProfile(models.Model):
     max_context_tokens = models.IntegerField(default=4096)
     base_hallucination_rate = models.FloatField(default=0.01) # 1% baseline
     is_active = models.BooleanField(default=True)
+    is_judge_model = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

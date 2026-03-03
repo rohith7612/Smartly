@@ -1,0 +1,221 @@
+{% extends "admin/base_site.html" %}
+{% block title %}Routing Stats | Admin{% endblock %}
+
+{% block extrahead %}
+<style>
+  .stats-wrap { padding: 20px 40px; }
+  h1.stats-title { font-size: 24px; margin-bottom: 24px; color: #333; }
+
+  /* Summary cards */
+  .cards { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 32px; }
+  .card {
+    flex: 1; min-width: 160px;
+    background: #fff; border: 1px solid #ddd; border-radius: 6px;
+    padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.07);
+  }
+  .card .label { font-size: 11px; text-transform: uppercase; color: #888; letter-spacing: .5px; }
+  .card .value { font-size: 28px; font-weight: 700; color: #333; margin-top: 6px; }
+  .card .sub   { font-size: 12px; color: #aaa; margin-top: 4px; }
+
+  /* Sections */
+  .section { margin-bottom: 36px; }
+  .section h2 { font-size: 16px; font-weight: 600; color: #444; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 16px; }
+
+  /* Tables */
+  table.stats-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #ddd; border-radius: 6px; overflow: hidden; }
+  table.stats-table th { background: #f5f5f5; padding: 10px 14px; text-align: left; font-size: 12px; text-transform: uppercase; color: #666; border-bottom: 1px solid #ddd; }
+  table.stats-table td { padding: 10px 14px; font-size: 13px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+  table.stats-table tr:last-child td { border-bottom: none; }
+  table.stats-table tr:hover td { background: #fafafa; }
+
+  /* Bar chart cells */
+  .bar-wrap { display: flex; align-items: center; gap: 8px; }
+  .bar-bg { flex: 1; background: #eee; border-radius: 4px; height: 10px; min-width: 80px; }
+  .bar-fill { height: 10px; border-radius: 4px; transition: width .3s; }
+  .bar-latency  { background: #4e88d6; }
+  .bar-cost     { background: #43a87b; }
+  .bar-halluc   { background: #e07b54; }
+  .bar-usage    { background: #9b6fd4; }
+  .bar-label    { font-size: 12px; color: #555; white-space: nowrap; min-width: 50px; }
+
+  /* Provider badge */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-openai    { background: #d4edff; color: #0066cc; }
+  .badge-anthropic { background: #ffe8d4; color: #cc5500; }
+  .badge-google    { background: #d4f5e4; color: #006633; }
+  .badge-hf        { background: #f0d4ff; color: #6600cc; }
+
+  .empty { color: #aaa; font-style: italic; font-size: 13px; padding: 12px 0; }
+  .back-link { margin-bottom: 20px; display: inline-block; font-size: 13px; color: #447e9b; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="stats-wrap">
+  <a class="back-link" href="{% url 'admin:index' %}">← Back to Admin</a>
+  <h1 class="stats-title">Routing Performance Dashboard</h1>
+
+  <!-- Summary Cards -->
+  <div class="cards">
+    <div class="card">
+      <div class="label">Total Requests</div>
+      <div class="value">{{ summary.total_requests }}</div>
+      <div class="sub">All time</div>
+    </div>
+    <div class="card">
+      <div class="label">Avg Latency</div>
+      <div class="value">{{ summary.avg_latency }}s</div>
+      <div class="sub">Across all models</div>
+    </div>
+    <div class="card">
+      <div class="label">Avg Cost</div>
+      <div class="value">${{ summary.avg_cost }}</div>
+      <div class="sub">Per request</div>
+    </div>
+    <div class="card">
+      <div class="label">Avg Hallucination</div>
+      <div class="value">{{ summary.avg_halluc }}%</div>
+      <div class="sub">Across audited requests</div>
+    </div>
+    <div class="card">
+      <div class="label">Active Models</div>
+      <div class="value">{{ summary.active_models }}</div>
+      <div class="sub">In router pool</div>
+    </div>
+  </div>
+
+  <!-- Model Usage Distribution -->
+  <div class="section">
+    <h2>Model Usage Distribution</h2>
+    {% if usage_rows %}
+    <table class="stats-table">
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Provider</th>
+          <th>Requests</th>
+          <th>Usage Share</th>
+          <th>Avg Latency</th>
+          <th>Avg Cost</th>
+          <th>Avg Hallucination</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in usage_rows %}
+        <tr>
+          <td><strong>{{ row.model_name }}</strong></td>
+          <td>
+            <span class="badge badge-{{ row.provider }}">{{ row.provider }}</span>
+          </td>
+          <td>{{ row.count }}</td>
+          <td>
+            <div class="bar-wrap">
+              <div class="bar-bg"><div class="bar-fill bar-usage" style="width:{{ row.usage_pct }}%"></div></div>
+              <span class="bar-label">{{ row.usage_pct }}%</span>
+            </div>
+          </td>
+          <td>
+            <div class="bar-wrap">
+              <div class="bar-bg"><div class="bar-fill bar-latency" style="width:{{ row.latency_pct }}%"></div></div>
+              <span class="bar-label">{{ row.avg_latency }}s</span>
+            </div>
+          </td>
+          <td>
+            <div class="bar-wrap">
+              <div class="bar-bg"><div class="bar-fill bar-cost" style="width:{{ row.cost_pct }}%"></div></div>
+              <span class="bar-label">${{ row.avg_cost }}</span>
+            </div>
+          </td>
+          <td>
+            {% if row.avg_halluc is not None %}
+            <div class="bar-wrap">
+              <div class="bar-bg"><div class="bar-fill bar-halluc" style="width:{{ row.halluc_pct }}%"></div></div>
+              <span class="bar-label">{{ row.avg_halluc }}%</span>
+            </div>
+            {% else %}
+            <span class="empty">No data</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No runtime data yet. Run some requests first.</p>
+    {% endif %}
+  </div>
+
+  <!-- Benchmark Stats -->
+  <div class="section">
+    <h2>Benchmark Stats (Offline)</h2>
+    {% if benchmark_rows %}
+    <table class="stats-table">
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Task Type</th>
+          <th>Avg Latency</th>
+          <th>Latency Variance</th>
+          <th>Avg Cost</th>
+          <th>Samples</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in benchmark_rows %}
+        <tr>
+          <td><strong>{{ row.model__model_name }}</strong></td>
+          <td>{{ row.task_type }}</td>
+          <td>{{ row.avg_latency|floatformat:2 }}s</td>
+          <td>{{ row.latency_variance|floatformat:2 }}s</td>
+          <td>${{ row.avg_cost|floatformat:6 }}</td>
+          <td>{{ row.sample_size }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No benchmark data yet. Run <code>python manage.py benchmark_models</code>.</p>
+    {% endif %}
+  </div>
+
+  <!-- Recent Routing Decisions -->
+  <div class="section">
+    <h2>Recent Routing Decisions (Last 20)</h2>
+    {% if recent_rows %}
+    <table class="stats-table">
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Task Type</th>
+          <th>Latency</th>
+          <th>Cost</th>
+          <th>Hallucination Score</th>
+          <th>Timestamp</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in recent_rows %}
+        <tr>
+          <td>{{ row.model__model_name }}</td>
+          <td>{{ row.task_type }}</td>
+          <td>{{ row.actual_latency|floatformat:2 }}s</td>
+          <td>${{ row.actual_cost|floatformat:6 }}</td>
+          <td>
+            {% if row.hallucination_score is not None %}
+              {{ row.hallucination_score|floatformat:2 }}
+            {% else %}
+              <span class="empty">Pending</span>
+            {% endif %}
+          </td>
+          <td>{{ row.created_at|date:"M d, H:i" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No recent requests found.</p>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
