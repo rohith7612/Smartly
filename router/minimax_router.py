@@ -6,7 +6,7 @@ def select_model(task_features):
     """
     Select the best model using MiniMax optimization.
     """
-    candidate_models = ModelProfile.objects.filter(is_active=True)
+    candidate_models = ModelProfile.objects.filter(is_active=True, is_judge_model=False)
     
     if not candidate_models.exists():
         return None # Fallback to hardcoded default elsewhere
