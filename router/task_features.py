@@ -1,17 +1,26 @@
 import re
+from functools import lru_cache
 
-def estimate_tokens(text, model_name="gpt-3.5-turbo"):
-    """Estimate token count for a given text."""
+@lru_cache(maxsize=8)
+def _get_tiktoken_encoding(model_name):
     try:
         import tiktoken
         try:
-            encoding = tiktoken.encoding_for_model(model_name)
+            return tiktoken.encoding_for_model(model_name)
         except KeyError:
-            encoding = tiktoken.get_encoding("cl100k_base")
-        return len(encoding.encode(text))
-    except (ImportError, Exception):
-        # Fallback to rough word-based estimation if tiktoken fails
-        return len(text.split()) * 1.3
+            return tiktoken.get_encoding("cl100k_base")
+    except ImportError:
+        return None
+
+def estimate_tokens(text, model_name="gpt-3.5-turbo"):
+    """Estimate token count for a given text."""
+    encoding = _get_tiktoken_encoding(model_name)
+    if encoding is not None:
+        try:
+            return len(encoding.encode(text))
+        except Exception:
+            pass
+    return int(len(text.split()) * 1.3)
 
 def compute_semantic_density(text):
     """

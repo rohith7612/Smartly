@@ -1,6 +1,7 @@
 import os
 import logging
 import re
+from functools import lru_cache
 try:
     import pdfplumber
 except Exception:
@@ -182,6 +183,27 @@ def extract_text_from_file(file_path, file_type):
     else:
         return "Unsupported file type"
 
+_SUFFIX_MAP = {'pdf': '.pdf', 'docx': '.docx', 'txt': '.txt', 'image': '.png'}
+
+def get_extracted_text_for_doc(doc):
+    """Extract text from a Document model instance, caching the result in Redis.
+
+    Cache key includes file_size so stale text is never served after a re-upload
+    of the same document with different content.
+    """
+    from django.core.cache import cache
+    cache_key = f"doc_text_{doc.id}_{doc.file_size}"
+    text = cache.get(cache_key)
+    if text is None:
+        suffix = _SUFFIX_MAP.get(doc.document_type, '.bin')
+        try:
+            with temporary_file_from_content(bytes(doc.file_content), suffix=suffix) as path:
+                text = extract_text_from_file(path, doc.document_type) or ''
+        except Exception:
+            text = ''
+        cache.set(cache_key, text, timeout=3600)
+    return text
+
 def get_youtube_video_id(url):
     """Extract YouTube video ID from URL"""
     youtube_regex = r'(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
@@ -216,6 +238,11 @@ def get_youtube_transcript(video_id):
             
     except Exception as e:
         return f"Error getting transcript: {str(e)}"
+
+@lru_cache(maxsize=32)
+def _get_model_profile(model_name):
+    """Cached ModelProfile lookup — profiles rarely change at runtime."""
+    return ModelProfile.objects.filter(model_name=model_name).first()
 
 def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=4000, skip_audit=False):
     """Route chat to the appropriate provider based on model string.
@@ -310,8 +337,7 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
         def _finish(res_text, used_model_name):
             try:
                 duration = time.time() - start_time
-                # Attempt to log runtime stats
-                mod_prof = ModelProfile.objects.filter(model_name=used_model_name).first()
+                mod_prof = _get_model_profile(used_model_name)
                 if mod_prof:
                     # Estimate tokens for cost
                     # In a real scenario, we'd get this from the API response
@@ -655,7 +681,7 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
     except Exception as e:
         # Log failure for the router to see
         try:
-            mod_prof = ModelProfile.objects.filter(model_name=actual_model_name if 'actual_model_name' in locals() else model).first()
+            mod_prof = _get_model_profile(actual_model_name if 'actual_model_name' in locals() else model)
             if mod_prof:
                 ModelRuntimeStats.objects.create(
                     model=mod_prof,

@@ -186,4 +186,15 @@ ENABLE_ROUTER_EXPERIMENT = os.getenv('ENABLE_ROUTER_EXPERIMENT', 'True') == 'Tru
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
 
+# Cache Configuration — uses the same Redis/Valkey instance as Celery
+_redis_url = os.getenv('REDIS_URL') or os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": _redis_url,
+        "TIMEOUT": 3600,
+        "KEY_PREFIX": "smartly",
+    }
+}
+
 

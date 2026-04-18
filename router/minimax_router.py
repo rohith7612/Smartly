@@ -2,13 +2,22 @@ from .risk_predictor import predict_cost, predict_latency, predict_hallucination
 from .normalizer import normalize_risks
 from .models import ModelProfile
 
+def _get_candidate_models():
+    """Return active non-judge models, cached for 60 seconds."""
+    from django.core.cache import cache
+    models = cache.get('router_candidate_models')
+    if models is None:
+        models = list(ModelProfile.objects.filter(is_active=True, is_judge_model=False))
+        cache.set('router_candidate_models', models, timeout=60)
+    return models
+
 def select_model(task_features):
     """
     Select the best model using MiniMax optimization.
     """
-    candidate_models = ModelProfile.objects.filter(is_active=True, is_judge_model=False)
-    
-    if not candidate_models.exists():
+    candidate_models = _get_candidate_models()
+
+    if not candidate_models:
         return None # Fallback to hardcoded default elsewhere
     
     model_risks = []
@@ -29,7 +38,7 @@ def select_model(task_features):
         
     if not valid_models:
         # If all overflow, pick the one with the largest context
-        return candidate_models.order_by('-max_context_tokens').first()
+        return max(candidate_models, key=lambda m: m.max_context_tokens, default=None)
         
     normalized = normalize_risks(model_risks)
     
