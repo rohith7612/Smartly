@@ -6,8 +6,9 @@ crispy-bootstrap5
 
 # AI & LLMs
 openai>=1.0.0
-anthropic>=0.25.0
-google-genai>=0.2.0
+anthropic==0.49.0
+google-genai==1.7.0
+typing_extensions==4.12.2
 huggingface-hub>=0.24.0
 
 # Documents & OCR
