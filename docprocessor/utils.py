@@ -217,7 +217,7 @@ def get_youtube_transcript(video_id):
     except Exception as e:
         return f"Error getting transcript: {str(e)}"
 
-def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=4000):
+def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=4000, skip_audit=False):
     """Route chat to the appropriate provider based on model string.
     Resolve API keys at call time to avoid import-order issues.
     """
@@ -329,7 +329,7 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
 
                     # Trigger Hallucination Audit for substantive tasks
                     # Don't audit the judge itself to avoid infinite loops
-                    if used_model_name != "MiniMaxAI/MiniMax-M2:novita" and res_text and len(res_text) > 50:
+                    if not skip_audit and used_model_name != "MiniMaxAI/MiniMax-M2:novita" and res_text and len(res_text) > 50:
                         from router.tasks import audit_hallucination_task
                         # Get a snippet of the source content from messages
                         source_snippet = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), "")

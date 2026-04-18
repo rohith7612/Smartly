@@ -34,7 +34,8 @@ def compute_hallucination_score(source_text, generated_text):
         response = _route_chat(
             messages=[{"role": "user", "content": prompt}],
             system_prompt="You are a strict fact-checker.",
-            model=judge_model
+            model=judge_model,
+            skip_audit=True
         )
         # Extract JSON from response
         import re
