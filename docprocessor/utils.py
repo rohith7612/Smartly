@@ -69,7 +69,7 @@ def calculate_max_tokens(words=None, tokens=None, length=None):
         length_map = {'short': 200, 'medium': 500, 'long': 1000}
         max_tokens = length_map.get(length.lower())
     if not max_tokens:
-        max_tokens = 800
+        max_tokens = 3000
     return max_tokens, target_words
 
 def get_document_type_from_filename(filename):
@@ -457,7 +457,10 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
             
             try:
                 # Prepare configuration
-                config = {"max_output_tokens": max_tokens}
+                config = {"max_output_tokens": max_tokens or 800}
+                if "2.5" in actual_model_name:
+                    # Disable thinking to avoid it consuming the output token budget
+                    config["thinking_config"] = {"thinking_budget": 0}
                 if effective_system:
                     config["system_instruction"] = effective_system
                 
@@ -723,7 +726,7 @@ def generate_answers(text, target_words=None, max_tokens=500, preset=None, model
         if preset == 'exam_answers':
             preset_instruction = " Generate comprehensive, step-by-step exam answers. Use numbered steps and short headings for clarity."
         elif preset == 'practice_questions':
-            preset_instruction = " Create 6-10 practice questions with detailed answers. Format as a numbered list where each item contains 'Q:' followed by the question and 'A:' followed by the answer."
+            preset_instruction = " Create 6-10 practice questions with detailed answers based on the provided text. Do NOT reproduce or summarize the source text — output ONLY the questions and answers. Format as a numbered list where each item contains 'Q:' followed by the question and 'A:' followed by the answer."
         elif preset == 'study_plan':
             preset_instruction = " Draft a personalized study schedule. Use a bullet list grouped by days/weeks with time blocks and goals."
         messages = [

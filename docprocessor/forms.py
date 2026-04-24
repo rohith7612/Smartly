@@ -53,7 +53,7 @@ class ModelSelectionForm(forms.Form):
         ('gpt-4', 'OpenAI — GPT-4'),
         ('gpt-4o', 'OpenAI — GPT-4o'),
         ('gpt-4o-mini', 'OpenAI — GPT-4o Mini'),
-        ('claude-3-haiku-20240307', 'Claude — 3 Haiku'),
+        ('claude-haiku-4-5-20251001', 'Claude — Haiku 4.5'),
         ('models/gemini-2.5-flash', 'Gemini — 2.5 Flash'),
         ('models/gemini-2.0-flash', 'Gemini — 2.0 Flash'),
         ('MiniMaxAI/MiniMax-M2:novita', 'Hugging Face — MiniMax M2 Novita'),
