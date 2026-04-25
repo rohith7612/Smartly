@@ -19,12 +19,15 @@ from django.conf import settings
 from django.core.paginator import Paginator
 from .models import Document, ProcessedResult, YouTubeVideo, YouTubeProcessedResult, ChatSession, ChatMessage
 from .forms import DocumentUploadForm, DocumentSelectForm, DocumentMultiSelectForm, YouTubeURLForm, ModelSelectionForm
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from django.core.cache import cache
 from .utils import (
-    extract_text_from_file, summarize_text, generate_answers, 
-    analyze_text, get_youtube_video_id, 
+    extract_text_from_file, summarize_text, generate_answers,
+    analyze_text, get_youtube_video_id,
     get_youtube_transcript, chat_with_openai, translate_text_free,
     recommend_youtube_videos_web, calculate_max_tokens,
-    get_document_type_from_filename, temporary_file_from_content
+    get_document_type_from_filename, temporary_file_from_content,
+    get_extracted_text_for_doc,
 )
 from .utils import _route_chat as chat_with_model
 
@@ -971,32 +974,21 @@ def chat_view(request):
             if not silent_quick:
                 ChatMessage.objects.create(session=active_session, role='user', content=user_message)
 
-            # Build document context (trimmed)
-            # IMPORTANT: Document content is stored in DB (BinaryField), not on disk.
-            # Create a temporary file per document to reuse our extractors.
+            # Extract text from all selected documents in parallel, using Redis cache.
+            session_docs = list(active_session.documents.all())
             context_snippets = []
             total_chars = 0
-            for doc in active_session.documents.all():
-                try:
-                    # Choose a suitable suffix based on document type
-                    suffix_map = {
-                        'pdf': '.pdf',
-                        'docx': '.docx',
-                        'txt': '.txt',
-                        'image': '.png',  # generic image fallback
-                    }
-                    suffix = suffix_map.get(doc.document_type, '.bin')
-                    with temporary_file_from_content(doc.file_content, suffix=suffix) as temp_path:
-                        # Extract text using existing utility
-                        text = extract_text_from_file(temp_path, doc.document_type)
-                except Exception:
-                    text = ''
-                snippet = text or ''
-                if snippet:
-                    context_snippets.append(f"- {doc.title}:\n{snippet}")
-                    total_chars += len(snippet)
-                if total_chars >= 25000:
-                    break
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {executor.submit(get_extracted_text_for_doc, doc): doc for doc in session_docs}
+                for future in as_completed(futures):
+                    doc = futures[future]
+                    try:
+                        text = future.result() or ''
+                    except Exception:
+                        text = ''
+                    if text and total_chars < 25000:
+                        context_snippets.append(f"- {doc.title}:\n{text}")
+                        total_chars += len(text)
             context_text = "\n\n".join(context_snippets)
 
             # Prepare chat history messages
@@ -1110,75 +1102,79 @@ def library_view(request):
 
     topics = []
     if documents.exists():
-        # Build compact payload for categorization
-        payload = []
-        for d in documents:
-            snippet = ''
-            try:
-                snippet = extract_text_from_file(d.file.path, d.document_type) or ''
-            except Exception:
-                snippet = ''
-            snippet = snippet[:1200]
-            payload.append({
-                'id': d.id,
-                'title': d.title,
-                'type': d.document_type,
-                'snippet': snippet,
-            })
-
-        system_prompt = (
-            "You categorize documents into clear, high-level topics. "
-            "Return strictly compact JSON using the provided document ids."
+        # Cache key invalidates automatically when the user adds/removes documents
+        latest_ts = documents.order_by('-uploaded_at').values_list('uploaded_at', flat=True).first()
+        topics_cache_key = (
+            f"lib_topics_{request.user.id}_{documents.count()}"
+            f"_{latest_ts.timestamp() if latest_ts else 0}"
         )
-        user_instruction = (
-            "Group the following documents into 4-8 topics based on semantic similarity. "
-            "Respond ONLY with JSON shaped as {\"topics\":[{\"name\":\"...\",\"document_ids\":[<ids>]}, ...]}. "
-            "Use concise topic names."
-        )
-        messages = [
-            {"role": "user", "content": user_instruction + "\n\n" + json.dumps(payload)}
-        ]
+        topics = cache.get(topics_cache_key)
 
-        try:
-            raw = chat_with_openai(messages, system_prompt=system_prompt, max_tokens=700)
-            parsed_topics = []
+        if topics is None:
+            # Build compact payload — use cached text extraction, fix for binary-backed docs
+            payload = []
+            for d in documents:
+                snippet = get_extracted_text_for_doc(d)[:1200]
+                payload.append({
+                    'id': d.id,
+                    'title': d.title,
+                    'type': d.document_type,
+                    'snippet': snippet,
+                })
+
+            system_prompt = (
+                "You categorize documents into clear, high-level topics. "
+                "Return strictly compact JSON using the provided document ids."
+            )
+            user_instruction = (
+                "Group the following documents into 4-8 topics based on semantic similarity. "
+                "Respond ONLY with JSON shaped as {\"topics\":[{\"name\":\"...\",\"document_ids\":[<ids>]}, ...]}. "
+                "Use concise topic names."
+            )
+            messages = [
+                {"role": "user", "content": user_instruction + "\n\n" + json.dumps(payload)}
+            ]
+
             try:
-                # Try to extract JSON in case model wrapped response
-                start = raw.find('{')
-                end = raw.rfind('}')
-                if start != -1 and end != -1:
-                    block = raw[start:end+1]
-                    data = json.loads(block)
-                    parsed_topics = data.get('topics') if isinstance(data, dict) else data
-            except Exception:
+                raw = chat_with_openai(messages, system_prompt=system_prompt, max_tokens=700)
                 parsed_topics = []
+                try:
+                    start = raw.find('{')
+                    end = raw.rfind('}')
+                    if start != -1 and end != -1:
+                        block = raw[start:end+1]
+                        data = json.loads(block)
+                        parsed_topics = data.get('topics') if isinstance(data, dict) else data
+                except Exception:
+                    parsed_topics = []
 
-            if not parsed_topics or not isinstance(parsed_topics, list):
-                # Fallback grouping by document type
+                if not parsed_topics or not isinstance(parsed_topics, list):
+                    groups = {}
+                    for d in documents:
+                        key = d.document_type.upper()
+                        groups.setdefault(key, []).append(d)
+                    topics = [{'name': k, 'documents': v} for k, v in groups.items()]
+                else:
+                    id_map = {d.id: d for d in documents}
+                    topics = []
+                    for t in parsed_topics:
+                        name = t.get('name') or 'Topic'
+                        ids = t.get('document_ids') or []
+                        docs_group = [id_map[i] for i in ids if i in id_map]
+                        if docs_group:
+                            topics.append({'name': name, 'documents': docs_group})
+                    assigned = set(i for t in parsed_topics for i in (t.get('document_ids') or []))
+                    leftover = [d for d in documents if d.id not in assigned]
+                    if leftover:
+                        topics.append({'name': 'Other', 'documents': leftover})
+            except Exception:
                 groups = {}
                 for d in documents:
                     key = d.document_type.upper()
                     groups.setdefault(key, []).append(d)
                 topics = [{'name': k, 'documents': v} for k, v in groups.items()]
-            else:
-                id_map = {d.id: d for d in documents}
-                topics = []
-                for t in parsed_topics:
-                    name = t.get('name') or 'Topic'
-                    ids = t.get('document_ids') or []
-                    docs_group = [id_map[i] for i in ids if i in id_map]
-                    if docs_group:
-                        topics.append({'name': name, 'documents': docs_group})
-                assigned = set(i for t in parsed_topics for i in (t.get('document_ids') or []))
-                leftover = [d for d in documents if d.id not in assigned]
-                if leftover:
-                    topics.append({'name': 'Other', 'documents': leftover})
-        except Exception:
-            groups = {}
-            for d in documents:
-                key = d.document_type.upper()
-                groups.setdefault(key, []).append(d)
-            topics = [{'name': k, 'documents': v} for k, v in groups.items()]
+
+            cache.set(topics_cache_key, topics, timeout=86400)
 
     # Analytics Data
     total_docs = documents.count()
@@ -1224,16 +1220,12 @@ def library_recommend_projects(request):
 
     payload = []
     for d in documents:
-        snippet = ''
-        try:
-            snippet = extract_text_from_file(d.file.path, d.document_type) or ''
-        except Exception:
-            snippet = ''
+        snippet = get_extracted_text_for_doc(d)[:1800]
         payload.append({
             'id': d.id,
             'title': d.title,
             'type': d.document_type,
-            'snippet': (snippet or '')[:1800],
+            'snippet': snippet,
         })
 
     system_prompt = (

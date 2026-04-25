@@ -3,7 +3,13 @@ from django.utils import timezone
 from datetime import timedelta
 
 def predict_reliability_risk(model):
-    # ... (existing code)
+    """Predict reliability risk based on recent error rate from runtime stats."""
+    cutoff = timezone.now() - timedelta(hours=1)
+    recent_stats = ModelRuntimeStats.objects.filter(model=model, created_at__gte=cutoff)
+    total = recent_stats.count()
+    if total == 0:
+        return 0.0
+    recent_errors = recent_stats.filter(actual_latency=0).count()
     if recent_errors >= 2:
         return 1.0
     return recent_errors * 0.4
@@ -34,7 +40,8 @@ def compute_hallucination_score(source_text, generated_text):
         response = _route_chat(
             messages=[{"role": "user", "content": prompt}],
             system_prompt="You are a strict fact-checker.",
-            model=judge_model
+            model=judge_model,
+            skip_audit=True
         )
         # Extract JSON from response
         import re

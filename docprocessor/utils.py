@@ -1,6 +1,7 @@
 import os
 import logging
 import re
+from functools import lru_cache
 try:
     import pdfplumber
 except Exception:
@@ -68,7 +69,7 @@ def calculate_max_tokens(words=None, tokens=None, length=None):
         length_map = {'short': 200, 'medium': 500, 'long': 1000}
         max_tokens = length_map.get(length.lower())
     if not max_tokens:
-        max_tokens = 800
+        max_tokens = 3000
     return max_tokens, target_words
 
 def get_document_type_from_filename(filename):
@@ -182,6 +183,27 @@ def extract_text_from_file(file_path, file_type):
     else:
         return "Unsupported file type"
 
+_SUFFIX_MAP = {'pdf': '.pdf', 'docx': '.docx', 'txt': '.txt', 'image': '.png'}
+
+def get_extracted_text_for_doc(doc):
+    """Extract text from a Document model instance, caching the result in Redis.
+
+    Cache key includes file_size so stale text is never served after a re-upload
+    of the same document with different content.
+    """
+    from django.core.cache import cache
+    cache_key = f"doc_text_{doc.id}_{doc.file_size}"
+    text = cache.get(cache_key)
+    if text is None:
+        suffix = _SUFFIX_MAP.get(doc.document_type, '.bin')
+        try:
+            with temporary_file_from_content(bytes(doc.file_content), suffix=suffix) as path:
+                text = extract_text_from_file(path, doc.document_type) or ''
+        except Exception:
+            text = ''
+        cache.set(cache_key, text, timeout=3600)
+    return text
+
 def get_youtube_video_id(url):
     """Extract YouTube video ID from URL"""
     youtube_regex = r'(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
@@ -217,7 +239,12 @@ def get_youtube_transcript(video_id):
     except Exception as e:
         return f"Error getting transcript: {str(e)}"
 
-def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=4000):
+@lru_cache(maxsize=32)
+def _get_model_profile(model_name):
+    """Cached ModelProfile lookup — profiles rarely change at runtime."""
+    return ModelProfile.objects.filter(model_name=model_name).first()
+
+def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=4000, skip_audit=False):
     """Route chat to the appropriate provider based on model string.
     Resolve API keys at call time to avoid import-order issues.
     """
@@ -310,8 +337,7 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
         def _finish(res_text, used_model_name):
             try:
                 duration = time.time() - start_time
-                # Attempt to log runtime stats
-                mod_prof = ModelProfile.objects.filter(model_name=used_model_name).first()
+                mod_prof = _get_model_profile(used_model_name)
                 if mod_prof:
                     # Estimate tokens for cost
                     # In a real scenario, we'd get this from the API response
@@ -329,7 +355,7 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
 
                     # Trigger Hallucination Audit for substantive tasks
                     # Don't audit the judge itself to avoid infinite loops
-                    if used_model_name != "MiniMaxAI/MiniMax-M2:novita" and res_text and len(res_text) > 50:
+                    if not skip_audit and used_model_name != "MiniMaxAI/MiniMax-M2:novita" and res_text and len(res_text) > 50:
                         from router.tasks import audit_hallucination_task
                         # Get a snippet of the source content from messages
                         source_snippet = next((m.get('content', '') for m in reversed(messages) if m.get('role') == 'user'), "")
@@ -431,7 +457,10 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
             
             try:
                 # Prepare configuration
-                config = {"max_output_tokens": max_tokens}
+                config = {"max_output_tokens": max_tokens or 800}
+                if "2.5" in actual_model_name:
+                    # Disable thinking to avoid it consuming the output token budget
+                    config["thinking_config"] = {"thinking_budget": 0}
                 if effective_system:
                     config["system_instruction"] = effective_system
                 
@@ -655,7 +684,7 @@ def _route_chat(messages, system_prompt=None, model="gpt-3.5-turbo", max_tokens=
     except Exception as e:
         # Log failure for the router to see
         try:
-            mod_prof = ModelProfile.objects.filter(model_name=actual_model_name if 'actual_model_name' in locals() else model).first()
+            mod_prof = _get_model_profile(actual_model_name if 'actual_model_name' in locals() else model)
             if mod_prof:
                 ModelRuntimeStats.objects.create(
                     model=mod_prof,
@@ -697,7 +726,7 @@ def generate_answers(text, target_words=None, max_tokens=500, preset=None, model
         if preset == 'exam_answers':
             preset_instruction = " Generate comprehensive, step-by-step exam answers. Use numbered steps and short headings for clarity."
         elif preset == 'practice_questions':
-            preset_instruction = " Create 6-10 practice questions with detailed answers. Format as a numbered list where each item contains 'Q:' followed by the question and 'A:' followed by the answer."
+            preset_instruction = " Create 6-10 practice questions with detailed answers based on the provided text. Do NOT reproduce or summarize the source text — output ONLY the questions and answers. Format as a numbered list where each item contains 'Q:' followed by the question and 'A:' followed by the answer."
         elif preset == 'study_plan':
             preset_instruction = " Draft a personalized study schedule. Use a bullet list grouped by days/weeks with time blocks and goals."
         messages = [

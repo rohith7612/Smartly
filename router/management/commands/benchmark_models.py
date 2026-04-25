@@ -42,7 +42,9 @@ class Command(BaseCommand):
                         _route_chat(
                             messages=[{"role": "user", "content": prompt}],
                             system_prompt=f"Task: {task_type}",
-                            model=model.model_name
+                            model=model.model_name,
+                            max_tokens=500,
+                            skip_audit=True
                         )
                         elapsed = time.time() - start
                         latencies.append(elapsed)
